@@ -37,11 +37,17 @@ def weekday_gaps(close: pd.DataFrame, first: int, last: int) -> pd.DataFrame:
 def unexplained_drops(
     adj: pd.DataFrame, fixes: Path = FIXES
 ) -> tuple[int, int, list[tuple[str, pd.Timestamp]]]:
-    """(one-day >20% drops, how many are listed in the fixes file, the unlisted (symbol, date))."""
+    """(one-day >20% drops, how many the fixes file covers, the uncovered (symbol, date)).
+
+    A drop is covered by a row on its own date, or by a `start` row dated after it (those prices
+    are not this company and are dropped)."""
     hits = flag_adjusted_drops(adj.drop(columns=[VOL_INDEX], errors="ignore"))
     table = pd.read_csv(fixes, parse_dates=["date"])
     known = set(zip(table["symbol"], table["date"], strict=True))
-    unlisted = [h for h in hits if h not in known]
+    starts = table[table["action"] == "start"].groupby("symbol")["date"].max()
+    unlisted = [
+        (s, d) for s, d in hits if (s, d) not in known and not (s in starts and d < starts[s])
+    ]
     return len(hits), len(hits) - len(unlisted), unlisted
 
 
@@ -89,9 +95,9 @@ def report_data(out_dir: Path) -> dict:
         "weekdays stocks traded but NIFTY has no bar": total_gap,
         "years with such gaps": [int(y) for y in gaps.index[gaps["index_gap"] > 0]],
         "one-day drops > 20% (excl. India VIX)": hits,
-        "listed in yahoo_fixes.csv": listed,
-        "not listed": [f"{s} {d:%Y-%m-%d}" for s, d in unlisted],
-        "busiest unlisted day": f"{by_day.index[0]:%Y-%m-%d} ({by_day.iloc[0]} stocks)"
+        "covered by yahoo_fixes.csv": listed,
+        "not covered": [f"{s} {d:%Y-%m-%d}" for s, d in unlisted],
+        "busiest uncovered day": f"{by_day.index[0]:%Y-%m-%d} ({by_day.iloc[0]} stocks)"
         if len(by_day)
         else None,
     }

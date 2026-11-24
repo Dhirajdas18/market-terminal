@@ -22,3 +22,12 @@ def test_unexplained_drops_ignores_vix_and_listed_fixes(tmp_path):
                   "reason": [""]}).to_csv(fixes, index=False)
     hits, listed, unlisted = unexplained_drops(adj, fixes)
     assert hits == 2 and listed == 1 and unlisted == [("B", idx[2])]
+
+
+def test_drops_before_a_start_fix_count_as_listed(tmp_path):
+    idx = pd.bdate_range("2008-03-12", periods=4)
+    adj = pd.DataFrame({"NEWCO": [2000.0, 700.0, 700.0, 700.0]}, index=idx)
+    fixes = tmp_path / "f.csv"
+    pd.DataFrame({"symbol": ["NEWCO"], "date": [idx[3].date()], "action": ["start"],
+                  "reason": [""]}).to_csv(fixes, index=False)
+    assert unexplained_drops(adj, fixes) == (1, 1, [])
