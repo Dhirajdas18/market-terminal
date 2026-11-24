@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from mt.session import session_date
+from mt.session import session_date, session_info
 
 EVENING = pd.Timestamp("2026-11-24 20:00", tz="Asia/Kolkata")
 STOCKS = [f"S{i:02d}" for i in range(48)] + ["INFY", "TCS"]
@@ -55,3 +55,24 @@ def test_recent_listing_does_not_block():
     close["NEWCO"] = np.nan
     close.iloc[-10:, close.columns.get_loc("NEWCO")] = 50.0
     assert session_date(close, EVENING) == (D("2026-11-23"), [])
+
+
+def test_stock_five_sessions_stale_is_suspended_not_blocking():
+    close = _close("2026-11-23")
+    close.loc["2026-11-17":, "TCS"] = np.nan  # last bar 2026-11-16, 5 sessions behind
+    as_of, missing, suspended = session_info(close, EVENING)
+    assert (as_of, missing) == (D("2026-11-23"), [])
+    assert suspended == [("TCS", D("2026-11-16"))]
+    assert session_date(close, EVENING) == (D("2026-11-23"), [])
+
+
+def test_stock_one_session_behind_still_holds_the_date_back():
+    close = _close("2026-11-23")
+    close.loc["2026-11-23", "TCS"] = np.nan
+    assert session_info(close, EVENING) == (D("2026-11-20"), ["TCS"], [])
+
+
+def test_two_sessions_behind_is_still_a_late_bar():
+    close = _close("2026-11-23")
+    close.loc["2026-11-20":, "TCS"] = np.nan
+    assert session_info(close, EVENING) == (D("2026-11-19"), ["TCS"], [])

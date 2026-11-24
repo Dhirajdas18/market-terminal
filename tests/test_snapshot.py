@@ -43,3 +43,13 @@ def test_clean_makes_strict_json():
 def test_clean_handles_nested_numpy_and_timestamps():
     obj = {"a": [np.int64(2), np.inf, np.bool_(True)], "d": pd.Timestamp("2026-11-23")}
     assert clean(obj) == {"a": [2, None, True], "d": "2026-11-23"}
+
+
+def test_snapshot_lists_suspended_stocks():
+    idx = pd.bdate_range(end="2026-11-23", periods=10, name="date")
+    cols = pd.MultiIndex.from_product([["close"], ["NIFTY", "TCS"]], names=["field", "symbol"])
+    table = pd.DataFrame(100.0, index=idx, columns=cols)
+    table.loc["2026-11-17":, ("close", "TCS")] = np.nan
+    snap = build(table, pd.Timestamp("2026-11-24 20:00", tz="Asia/Kolkata"))
+    assert snap["as_of"] == "2026-11-23" and snap["missing"] == []
+    assert snap["suspended"] == [{"symbol": "TCS", "last": "2026-11-16"}]
