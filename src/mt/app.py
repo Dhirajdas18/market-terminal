@@ -2,11 +2,11 @@
 two keys: q quits, r refreshes in a thread worker so the screen never waits on the network."""
 
 import logging
+import threading
 from collections.abc import Callable
 from pathlib import Path
 
 from rich.text import Text
-from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
@@ -56,6 +56,7 @@ class TerminalApp(App):
         self.snapshot = snapshot
         self._refresh_fn = refresh
         self._update_on_mount = update_on_mount
+        self._refreshing = False
 
     def on_mount(self) -> None:
         if self._update_on_mount and self._refresh_fn is not None:
@@ -76,9 +77,19 @@ class TerminalApp(App):
                 with TabPane(title):
                     yield make(self.snapshot)
 
+    @property
+    def refreshing(self) -> bool:
+        """A download is in flight (r is ignored until it finishes)."""
+        return self._refreshing
+
     async def _show(self, snap: dict) -> None:
+        self._refreshing = False
         self.snapshot = snap
         await self.recompose()
+
+    def _failed(self, label: str) -> None:
+        self._refreshing = False
+        self._set_notice(f"Refresh failed: {label}")
 
     def _set_notice(self, notice: str | None) -> None:
         self.snapshot = {**self.snapshot, "notice": notice}
@@ -88,15 +99,28 @@ class TerminalApp(App):
         if self._refresh_fn is None:
             self._set_notice("Refresh is not available here.")
             return
+        if self._refreshing:  # one download at a time: no second writer, no stale delivery
+            return
+        self._refreshing = True
         self._set_notice("Updating…")
-        self._refresh_worker()
+        # A daemon thread, not a Textual thread worker: those run in asyncio's default executor,
+        # whose non-daemon threads are joined on exit, so q would wait for an in-flight download.
+        threading.Thread(target=self._refresh_thread, name="mt-refresh", daemon=True).start()
 
-    @work(thread=True, exclusive=True, exit_on_error=False)
-    def _refresh_worker(self) -> None:
+    def _refresh_thread(self) -> None:
         try:
             snap = self._refresh_fn()
         except Exception as exc:  # any failure keeps the current data on screen
             log.warning("refresh failed: %s: %s", type(exc).__name__, exc)
-            self.call_from_thread(self._set_notice, f"Refresh failed: {error_label(exc)}")
+            self._deliver(self._failed, error_label(exc))
             return
-        self.call_from_thread(self._show, snap)
+        self._deliver(self._show, snap)
+
+    def _deliver(self, callback, *args) -> None:
+        if not self.is_running:  # the app has already closed: drop the result
+            log.info("refresh finished after quit; result dropped")
+            return
+        try:
+            self.call_from_thread(callback, *args)
+        except RuntimeError:  # closed between the check and the call
+            log.info("refresh finished after quit; result dropped")

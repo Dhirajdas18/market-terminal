@@ -1,6 +1,7 @@
 import asyncio
 import json
 import threading
+import time
 from pathlib import Path
 
 from textual.widgets import Static
@@ -13,6 +14,14 @@ SNAP = json.loads((Path(__file__).parent / "fixtures" / "snapshot.json").read_te
 
 def _masthead(app: TerminalApp) -> str:
     return str(app.query_one("#masthead", Static).content)
+
+
+async def _settled(app: TerminalApp, pilot, timeout: float = 5.0) -> None:
+    """Wait until no refresh is in flight."""
+    deadline = time.monotonic() + timeout
+    while app.refreshing and time.monotonic() < deadline:
+        await pilot.pause(0.01)
+    await pilot.pause()
 
 
 def test_header_shows_date(snap_compare):
@@ -41,7 +50,7 @@ def test_refresh_failure_sets_notice(caplog):
     async def run():
         async with app.run_test() as pilot:
             await pilot.press("r")
-            await app.workers.wait_for_complete()
+            await _settled(app, pilot)
             await pilot.pause()
             return _masthead(app)
 
@@ -67,7 +76,7 @@ def test_launch_shows_cache_first_then_the_update():
             await pilot.pause()
             first = _masthead(app)
             release.set()
-            await app.workers.wait_for_complete()
+            await _settled(app, pilot)
             await pilot.pause()
             return first, _masthead(app)
 
@@ -84,7 +93,7 @@ def test_launch_update_failure_keeps_cache_and_names_the_error():
 
     async def run():
         async with app.run_test() as pilot:
-            await app.workers.wait_for_complete()
+            await _settled(app, pilot)
             await pilot.pause()
             return _masthead(app)
 
@@ -100,7 +109,7 @@ def test_refresh_success_replaces_snapshot():
     async def run():
         async with app.run_test() as pilot:
             await pilot.press("r")
-            await app.workers.wait_for_complete()
+            await _settled(app, pilot)
             await pilot.pause()
             return _masthead(app)
 
@@ -116,3 +125,61 @@ def test_header_lists_suspended_stocks():
             return _masthead(app)
 
     assert "suspended: YESBANK (last 2026-11-10)" in asyncio.run(run())
+
+
+def test_quit_during_a_slow_refresh_is_prompt_and_leaves_no_blocking_thread():
+    release = threading.Event()
+
+    def stuck_refresh():  # an in-flight HTTP call that cannot be cancelled
+        release.wait(30)
+        return SNAP
+
+    app = TerminalApp(SNAP, stuck_refresh, update_on_mount=True)
+
+    pressed = {}
+
+    async def run():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.refreshing
+            pressed["at"] = time.monotonic()
+            await pilot.press("q")
+
+    try:
+        asyncio.run(run())  # includes asyncio's join of its default thread pool
+        took = time.monotonic() - pressed["at"]
+        # Non-daemon threads are joined at interpreter exit; none may be left waiting on the fetch.
+        blocking = [t for t in threading.enumerate()
+                    if t is not threading.main_thread() and not t.daemon and t.is_alive()]
+        assert took < 1.0 and app.return_code == 0
+        assert blocking == []
+    finally:
+        release.set()
+
+
+def test_r_during_a_refresh_does_not_start_another():
+    release = threading.Event()
+    calls = []
+    new = {**SNAP, "as_of": "2026-11-24", "as_of_label": "Data for Tue 24 Nov 2026",
+           "missing": [], "stale": False}
+
+    def slow_refresh():
+        calls.append(1)
+        release.wait(5)
+        return new
+
+    app = TerminalApp(SNAP, slow_refresh, update_on_mount=True)
+
+    async def run():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("r")
+            await pilot.press("r")
+            await pilot.pause(0.1)
+            release.set()
+            await _settled(app, pilot)
+            return _masthead(app)
+
+    text = asyncio.run(run())
+    assert len(calls) == 1
+    assert "Data for Tue 24 Nov 2026" in text and "Updating…" not in text
