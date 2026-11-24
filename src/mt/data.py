@@ -10,6 +10,7 @@ volume. Yahoo's open/high/low/close are split-adjusted, not dividend-adjusted; r
 adj_close.
 """
 
+import logging
 import re
 import tempfile
 import time
@@ -18,6 +19,7 @@ from pathlib import Path
 
 import pandas as pd
 
+log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[2]
 CONSTITUENTS = ROOT / "docs" / "data" / "nifty50.csv"
 FIXES = ROOT / "docs" / "data" / "yahoo_fixes.csv"
@@ -107,7 +109,8 @@ def download(
             time.sleep(5 * attempt)
         try:
             df = fetch()
-        except Exception:  # noqa: S112 - network or Yahoo error: retry
+        except Exception as exc:  # network or Yahoo error: log it and retry
+            log.warning("download attempt %d failed: %s: %s", attempt + 1, type(exc).__name__, exc)
             continue
         if not (missing := find_missing(df)):
             return df
@@ -121,6 +124,14 @@ def load_cache(path: Path = DATA_PATH, since: pd.Timestamp | None = None) -> pd.
         return None
     filters = [("date", ">=", pd.Timestamp(since))] if since is not None else None
     return pd.read_parquet(path, filters=filters).sort_index()
+
+
+def remove_stale_temp_files(directory: Path | None = None) -> None:
+    """Delete `tmp*.tmp` files a killed cache write left in the data directory."""
+    directory = Path(directory) if directory is not None else DATA_PATH.parent
+    for leftover in directory.glob("tmp*.tmp"):
+        if leftover.is_file() and not leftover.is_symlink():
+            leftover.unlink(missing_ok=True)
 
 
 def _write_atomic(table: pd.DataFrame, path: Path) -> None:
@@ -145,7 +156,11 @@ def update_cache(
     `overlap_days`, so revised bars replace the cached ones. Raises DownloadFailed (cache untouched)
     if Yahoo leaves any ticker out."""
     path = Path(path)
-    old = load_cache(path)
+    try:
+        old = load_cache(path)
+    except Exception as exc:  # corrupt cache file: download everything again and overwrite it
+        log.warning("cache unreadable: %s: %s", type(exc).__name__, exc)
+        old = None
     if old is None or old.empty:
         start = START
     else:

@@ -109,3 +109,20 @@ def test_zero_blank_and_start_fixes(tmp_path):
     assert r.loc[idx[1], "B"] == 0.0 and r.loc[idx[2], "B"] == pytest.approx(0.05)
     assert r.loc[: idx[2], "C"].isna().all() and r.loc[idx[3], "C"] == pytest.approx(0.02)
     assert np.isfinite(r.loc[idx[3]]).all()
+
+
+def test_corrupt_cache_file_is_replaced_by_a_fresh_download(tmp_path):
+    path = tmp_path / "p.parquet"
+    path.write_bytes(b"not a parquet file")
+    fetch = FakeFetch()
+    table = update_cache(path, fetch=fetch)
+    assert fetch.calls == ["2007-01-01"] and load_cache(path).equals(table)
+
+
+def test_each_failed_attempt_is_logged(caplog):
+    def fetch():
+        raise ConnectionError("reset by peer")
+
+    with caplog.at_level("WARNING", logger="mt.data"), pytest.raises(DownloadFailed):
+        data.download(fetch, lambda df: [], attempts=3)
+    assert caplog.text.count("ConnectionError: reset by peer") == 3

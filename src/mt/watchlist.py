@@ -46,13 +46,15 @@ def save(symbols: list[str], path: Path = WATCHLIST) -> None:
     path = Path(path)
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     path.parent.chmod(0o700)
-    with tempfile.NamedTemporaryFile(
-        "w", dir=path.parent, suffix=".tmp", delete=False, encoding="utf-8"
-    ) as tmp:
-        tmp_path = Path(tmp.name)
-        json.dump(list(symbols), tmp)
+    tmp_path = None
     try:
+        with tempfile.NamedTemporaryFile(
+            "w", dir=path.parent, suffix=".tmp", delete=False, encoding="utf-8"
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+            json.dump(list(symbols), tmp)
         tmp_path.chmod(0o600)
         tmp_path.replace(path)
     finally:
-        tmp_path.unlink(missing_ok=True)
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)

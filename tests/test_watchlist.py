@@ -60,3 +60,15 @@ def test_save_failure_keeps_the_old_file(tmp_path, monkeypatch):
     monkeypatch.undo()
     assert watchlist.load(path, known=KNOWN) == ["TCS"]
     assert [p.name for p in tmp_path.iterdir()] == ["w.json"]
+
+
+def test_save_removes_the_temp_file_when_the_dump_fails(tmp_path, monkeypatch):
+    def boom(*args, **kwargs):
+        raise TypeError("not serialisable")
+
+    monkeypatch.setattr(watchlist.json, "dump", boom)
+    try:
+        watchlist.save(["TCS"], tmp_path / "w.json")
+    except TypeError:
+        pass
+    assert list(tmp_path.iterdir()) == []

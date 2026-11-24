@@ -365,7 +365,7 @@ def draw_spark(plot: TokenPlot, spark: dict) -> None:
     plt = plot.plt
     plt.clear_figure()
     dates = spark["dates"]
-    pts = [(i, v * 100) for i, v in enumerate(spark["pct"]) if v is not None]
+    pts = [(i, v * 100) for i, v in enumerate(spark["pct"]) if v is not None and v == v]
     if pts:
         plt.plot(*zip(*pts, strict=True), color=_rgb(ACCENT), marker="braille")
     plt.plot([0, max(len(dates) - 1, 1)], [50, 50], color=_rgb(MUTED), marker="braille")

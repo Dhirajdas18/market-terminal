@@ -937,3 +937,49 @@ def test_tab_keys_do_nothing_while_the_stock_view_is_open():
 
     keys, depth, held = asyncio.run(run())
     assert keys == set() and depth == 2 and held == ["HDFCBANK", "RELIANCE", "LT", "JIOFIN"]
+
+
+def test_spark_skips_nan_as_well_as_none():
+    class P:
+        class plt:
+            plotted = []
+
+            clear_figure = ylim = yticks = xticks = grid = title = staticmethod(
+                lambda *a, **k: None
+            )
+
+            @staticmethod
+            def plot(xs, ys, **kw):
+                P.plt.plotted.append(list(ys))
+
+        def refresh(self):
+            pass
+
+    spark = {"dates": ["2026-11-19", "2026-11-20", "2026-11-23"], "pct": [0.4, float("nan"), None]}
+    widgets.draw_spark(P(), spark)
+    assert P.plt.plotted[0] == [40.0]
+
+
+def test_candles_tolerate_a_new_listing_with_no_averages():
+    seen = []
+
+    class P:
+        class plt:
+            clear_figure = xticks = yticks = grid = title = staticmethod(lambda *a, **k: None)
+            candlestick = staticmethod(lambda *a, **k: None)
+
+            @staticmethod
+            def plot(xs, ys, **kw):
+                seen.append(kw["label"])
+
+        def refresh(self):
+            pass
+
+    n = 5
+    idx = {
+        "dates": [f"2026-11-{d:02d}" for d in range(16, 16 + n)],
+        "open": [10.0] * n, "high": [11.0] * n, "low": [9.0] * n, "close": [10.5] * n,
+        "ma20": [None] * n, "ma50": [None] * n,
+    }
+    widgets.draw_candles(P(), idx, n, "last 5 sessions", "NEWCO")
+    assert seen == []
