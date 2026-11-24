@@ -58,7 +58,7 @@ def test_no_cache_and_failing_fetch_exits_1_without_traceback(monkeypatch, recor
                         lambda: real_update(tmp_path / "p.parquet", fetch=fetch))
     assert cli.run_app() == 1
     err = capsys.readouterr().err
-    assert "No cached prices" in err and "DownloadFailed" in err and "Traceback" not in err
+    assert "No price data yet" in err and "DownloadFailed" in err and "Traceback" not in err
 
 
 def test_no_cache_and_unexpected_error_exits_1(monkeypatch, recorder, capsys):
@@ -147,3 +147,120 @@ def test_app_opens_on_the_watchlist_file_but_the_demo_keeps_it_in_memory(
     demo.write_text('{"as_of": "2026-11-23"}')
     cli.run_demo(str(demo))
     assert "watchlist_path" not in recorder.kw
+
+
+# --- offline behaviour, membership wiring and hardening ---
+
+
+def test_offline_with_cache_opens_with_notice(monkeypatch):
+    import asyncio
+
+    from textual.widgets import Static
+
+    monkeypatch.setattr(cli, "now_ist", lambda: pd.Timestamp("2026-11-24 20:00", tz="Asia/Kolkata"))
+    monkeypatch.setattr(mt.data, "load_cache", lambda since=None: _cache())
+
+    def offline():
+        raise OSError("network is down")
+
+    monkeypatch.setattr(mt.data, "update_cache", offline)
+    built = {}
+    real = mt.app.TerminalApp
+
+    def make(*a, **kw):
+        built["app"] = real(*a, **kw)
+        built["app"].run = lambda: None
+        return built["app"]
+
+    monkeypatch.setattr(mt.app, "TerminalApp", make)
+    assert cli.run_app() == 0
+    app = built["app"]
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            for _ in range(100):
+                if not app.refreshing:
+                    break
+                await pilot.pause(0.02)
+            await pilot.pause()
+            return str(app.query_one("#masthead", Static).content)
+
+    text = asyncio.run(run())
+    assert "Refresh failed: OSError" in text and "Data for Mon 23 Nov 2026" in text
+
+
+def test_offline_without_cache_exits_cleanly(monkeypatch, capsys):
+    monkeypatch.setattr(mt.data, "load_cache", lambda since=None: None)
+    monkeypatch.setattr(cli, "setup_logging", lambda: None)
+
+    def offline():
+        raise OSError("network is down")
+
+    monkeypatch.setattr(mt.data, "update_cache", offline)
+    assert cli.main([]) == 1
+    err = capsys.readouterr().err
+    assert "No price data yet" in err and "Traceback" not in err
+
+
+def test_refresh_puts_the_membership_banner_in_the_notice(monkeypatch):
+    import mt.membership
+
+    monkeypatch.setattr(cli, "now_ist", lambda: pd.Timestamp("2026-11-24 20:00", tz="Asia/Kolkata"))
+    monkeypatch.setattr(mt.data, "update_cache", _cache)
+    banner = "NIFTY 50 list changed: +X"
+    monkeypatch.setattr(mt.membership, "check", lambda committed, fetch, *a, **k: banner)
+    assert cli.refresh()["notice"] == banner
+
+
+def test_demo_and_first_download_never_check_membership(monkeypatch, recorder):
+    import mt.membership
+
+    def boom(*a, **k):
+        raise AssertionError("no membership check here")
+
+    monkeypatch.setattr(mt.membership, "check", boom)
+    monkeypatch.setattr(mt.data, "load_cache", lambda since=None: None)
+    monkeypatch.setattr(mt.data, "update_cache", _cache)
+    assert cli.run_app() == 0
+    _no_network(monkeypatch)
+    assert cli.main(["--demo", DEMO]) == 0
+
+
+def test_unusable_cache_is_treated_as_no_cache(monkeypatch, recorder, capsys):
+    bad = pd.DataFrame({"x": [1.0]}, index=pd.DatetimeIndex(["2026-11-20"], name="date"))
+    monkeypatch.setattr(mt.data, "load_cache", lambda since=None: bad)
+    monkeypatch.setattr(mt.data, "update_cache", _cache)
+    assert cli.run_app() == 0
+    snap, _refresh, update_on_mount = recorder.args
+    assert snap["as_of"] == "2026-11-23" and update_on_mount is False
+    assert "Traceback" not in capsys.readouterr().err
+
+
+def test_first_download_announces_itself_on_stderr(monkeypatch, recorder, capsys):
+    monkeypatch.setattr(mt.data, "load_cache", lambda since=None: None)
+    monkeypatch.setattr(mt.data, "update_cache", _cache)
+    cli.run_app()
+    assert "Downloading price history (first run, about 20 s)…" in capsys.readouterr().err
+
+
+def test_start_deletes_stale_temp_files_only_in_the_data_dir(monkeypatch, recorder, tmp_path):
+    d = tmp_path / "data"
+    d.mkdir()
+    stale, keep1, keep2 = d / "tmpab12cd.tmp", d / "prices.parquet", d / "notes.tmp"
+    for f in (stale, keep1, keep2):
+        f.write_text("x")
+    monkeypatch.setattr(mt.data, "DATA_PATH", d / "prices.parquet")
+    monkeypatch.setattr(mt.data, "load_cache", lambda since=None: _cache())
+    cli.run_app()
+    assert not stale.exists() and keep1.exists() and keep2.exists()
+
+
+def test_demo_nested_json_and_big_files_exit_cleanly(tmp_path, capsys, recorder):
+    deep = tmp_path / "deep.json"
+    deep.write_text("[" * 200_000 + "]" * 200_000)
+    assert cli.main(["--demo", str(deep)]) == 1
+    big = tmp_path / "big.json"
+    big.write_text('{"as_of": "x", "pad": "' + "a" * (5 * 1024 * 1024) + '"}')
+    assert cli.main(["--demo", str(big)]) == 1
+    err = capsys.readouterr().err
+    assert "Traceback" not in err and "too large" in err and err.count("Cannot open demo file") == 2

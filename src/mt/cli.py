@@ -11,6 +11,7 @@ import pandas as pd
 OUT = Path("out")
 CONFIG_DIR = Path.home() / ".config" / "market-terminal"
 log = logging.getLogger("mt.cli")
+DEMO_MAX_BYTES = 5 * 1024 * 1024
 HISTORY = pd.DateOffset(years=3, days=10)  # the screens need at most ~3 years of bars
 
 
@@ -32,11 +33,21 @@ def snapshot_from(table: pd.DataFrame) -> dict:
     return snapshot.build(table, now_ist())
 
 
-def refresh() -> dict:
-    """Download the missing days and rebuild the snapshot (raises on failure)."""
+def _download() -> dict:
     from mt.data import update_cache
 
     return snapshot_from(update_cache())
+
+
+def refresh() -> dict:
+    """Download the missing days and rebuild the snapshot (raises on failure). Runs in the app's
+    update thread, so the once-a-day NIFTY 50 membership check goes here, not on the UI thread."""
+    from mt import membership
+    from mt.data import SYMBOLS
+
+    snap = _download()
+    snap["notice"] = membership.check(set(SYMBOLS), membership.fetch_nse, membership.STAMP)
+    return snap
 
 
 def setup_logging(config_dir: Path = CONFIG_DIR) -> Path:
@@ -58,32 +69,41 @@ def run_app() -> int:
     """Open on the cache at once and update it inside the app; with no cache, download first."""
     from mt import watchlist
     from mt.app import TerminalApp
-    from mt.data import error_label, load_cache
+    from mt.data import DATA_PATH, error_label, load_cache, remove_stale_temp_files
 
     file = watchlist.WATCHLIST  # read now, so a test can point it elsewhere
 
+    try:
+        remove_stale_temp_files(DATA_PATH.parent)
+    except OSError as exc:
+        log.warning("stale temp files not removed: %s: %s", type(exc).__name__, exc)
     since = now_ist().tz_localize(None).normalize() - HISTORY
     try:
         table = load_cache(since=since)
     except Exception as exc:  # unreadable cache: treat as none, the download rewrites it
         log.warning("cache unreadable: %s: %s", type(exc).__name__, exc)
         table = None
-    if table is None or table.empty:
+    snap = None
+    if table is not None and not table.empty:
         try:
-            snap = refresh()
+            snap = snapshot_from(table)
+        except Exception as exc:  # unusable cache (wrong shape, no valid session): as if none
+            log.warning("cache unusable: %s: %s", type(exc).__name__, exc)
+    if snap is None:
+        print("Downloading price history (first run, about 20 s)\u2026", file=sys.stderr)
+        try:
+            snap = _download()
         except Exception as exc:
             log.warning("first download failed: %s: %s", type(exc).__name__, exc)
             print(
-                f"No cached prices and the download failed: {error_label(exc)}. "
+                f"No price data yet and the download failed: {error_label(exc)}. "
                 "Check the connection and run `uv run mt` again.",
                 file=sys.stderr,
             )
             return 1
         app = TerminalApp(snap, refresh, watchlist_path=file)
     else:
-        app = TerminalApp(
-            snapshot_from(table), refresh, update_on_mount=True, watchlist_path=file
-        )
+        app = TerminalApp(snap, refresh, update_on_mount=True, watchlist_path=file)
     app.run()
     return app.return_code or 0
 
@@ -93,10 +113,12 @@ def run_demo(path: str) -> int:
     from mt.app import TerminalApp
 
     try:
+        if Path(path).stat().st_size > DEMO_MAX_BYTES:
+            raise ValueError("file too large (over 5 MB)")
         snap = json.loads(Path(path).read_text(encoding="utf-8"))
         if not isinstance(snap, dict) or "as_of" not in snap:
             raise ValueError('not a snapshot (expected an object with "as_of")')
-    except (OSError, ValueError) as exc:  # missing/unreadable file, bad JSON (a ValueError)
+    except (OSError, ValueError, RecursionError) as exc:  # unreadable, bad or too nested
         print(f"Cannot open demo file {path}: {exc}", file=sys.stderr)
         return 1
     app = TerminalApp(snap, None, refresh_off_notice="Demo data \u2014 refresh off")
