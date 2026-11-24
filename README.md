@@ -16,6 +16,8 @@ in a local cache. It runs only while open: no background jobs, no polling, netwo
   skeleton with refresh and quit
 - [x] Overview tab: NIFTY 50, NIFTY Bank, India VIX, USD/INR, gold and the S&P 500 with last close, day, week
   and year-to-date change and the position inside the 52-week range
+- [x] Chart tab: NIFTY candles with 20- and 50-day averages and the traded value of the 50 stocks below;
+  Movers tab: top 5 gainers, losers and unusual-volume stocks
 
 ## Usage
 
@@ -24,6 +26,7 @@ uv sync
 uv run mt                  # first run downloads 2007 onwards (~20 s) before opening
 uv run mt report data      # README chart -> out/, numbers printed
 uv run mt report overview  # the S&P 500 check below
+uv run mt report candles   # gaps and unusual volume below
 uv run pytest
 ```
 
@@ -47,6 +50,26 @@ last bar is older than the session date shows it ("as of Fri 20 Nov"). Day is th
 previous valid close, week from the last close of the previous ISO week, year-to-date from the last
 close of the previous calendar year; the bar places the last close between the lowest low and highest
 high of the 365 calendar days to the session date.
+
+## Chart tab
+
+<img src="docs/img/app_chart.svg" alt="The Chart tab: NIFTY 50 candles for the last 120 sessions with a 20-day and a 50-day average, and bars of the traded value of the 50 stocks below" width="720">
+
+Screenshot from synthetic numbers (the test fixture), not market data. The candles are the last 120
+sessions with a NIFTY bar; the averages are computed on the whole history and then cut, so the first
+candle already has one. Green is a close above the open. The bars below are not NIFTY's own volume:
+Yahoo's `^NSEI` volume has no documented meaning, so they show the 50 stocks' traded value (close ×
+volume, summed, in ₹ crore). The two plots have separate y-axes and are drawn only when the tab is
+first opened.
+
+## Movers tab
+
+<img src="docs/img/app_movers.svg" alt="The Movers tab: three tables with the five biggest gainers, the five biggest losers and the five stocks with the highest volume against their previous 20-day mean" width="720">
+
+Synthetic numbers again. Day changes use adjusted closes with the known Yahoo errors from
+`docs/data/yahoo_fixes.csv` repaired. Unusual volume is today's volume divided by the mean of the
+previous 20 sessions (today left out; a day with no volume print counts as missing). A stock without
+a bar on the session date is left out of all three tables.
 
 ## Findings
 
@@ -90,6 +113,37 @@ for that day or the next.
 - **By year:** the previous session is higher in 8 of 17 years (2011, 2014, 2017, 2018, 2022, 2023,
   2025 and 2026, the last to 23 Nov), the same date in the other 9. Yearly values run from 0.00 to 0.40.
 
+### 3. NIFTY opens within ±0.5% of the previous close on 78% of sessions; a stock's next-session move is 0.25 points larger after a top-decile volume day (t 20.6) and 0.07 points smaller once that day's own move is held fixed (t −3.9)
+
+<a href="docs/img/candles_gaps.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/candles_gaps.png"><img src="docs/img/candles_gaps.gif" alt="Histogram of NIFTY's opening gap, open against the previous close, from 2007 to 2026, centred just above zero" width="720"></picture></a>
+
+<a href="docs/img/candles_volume.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/candles_volume.png"><img src="docs/img/candles_volume.gif" alt="Bars of the mean absolute next-session return after a top-decile volume day and after all other days, for the first half, the second half and the whole sample" width="720"></picture></a>
+
+- **Gap** is a session's open divided by the last valid NIFTY close, minus 1: 4,705 sessions from
+  18 Sep 2007 to 23 Nov 2026. Median absolute gap 0.23%; 53.0% of sessions are under 0.25%, 78.4% under
+  0.5% and 94.1% under 1%; 63 are above 2%. 63.8% open above the previous close. Largest up: 29 Oct 2008
+  (+6.4%); largest down: 23 Mar 2020 (−9.1%).
+- **Unusual volume** is a stock's volume divided by the mean of its previous 20 sessions; a stock-day is
+  in the top decile when its ratio ranks in the top 10% of that day's 50 stocks (ranked within the
+  day, from that day's ratios only). 218,305 stock-days on 4,878 dates, 23,797 of them top decile; the
+  50 are today's NIFTY members.
+- **Next-session absolute return**, top decile against all other stock-days: 1.70% against 1.44%, a
+  difference of +0.25 points (t 20.6, standard errors clustered by date). Split at the middle stock-day (2017): 2007 to 2017, 1.81% against 1.57% (+0.23,
+  t 14.2); 2017 to 2026, 1.57% against 1.32% (+0.26, t 14.1).
+- **Holding the day's own move fixed:** regressing the next-session absolute return on the top-decile
+  flag and that day's absolute return gives −0.066 points on the flag (t −3.9) and 0.239 on the day's
+  absolute return.
+- **Bad-print scan before these numbers:** no stock moved more than 15% in a day, then more than 12% the
+  other way the next day, while NIFTY moved less than 2%. Dropping the NIFTY condition finds 5 stock-days
+  and each was checked: ICICI Bank on 10 Oct 2008 (NIFTY −6.7%, then +6.4%), Sun Pharma on 18 May 2009
+  (NIFTY +17.7%), Apollo Hospitals on 20 Mar 2020 (NIFTY +5.8%, then −13.0%) and HDFC
+  Life on 23 Mar 2020 (NIFTY −13.0%, then +2.5%) moved with the index. Shriram Finance on 17 Apr 2020
+  (+17.7%, NIFTY +3.0%; −14.6% the next day) has open, high, low and close consistent with each other,
+  22.9 million and 39.0 million shares traded (17.0 million two days before), and fell again to 114.7
+  on 21 Apr, so it is kept as a real move. None needed a fix.
+- **Sample:** the 50 are today's members applied to past years (survivorship-biased, see Design); the
+  `mt report candles` output prints every number above.
+
 ## Design
 
 - `src/mt/data.py`: tickers, Yahoo download with retries (`DownloadFailed` names any missing ticker and
@@ -98,6 +152,7 @@ for that day or the next.
   `docs/data/yahoo_fixes.csv`.
 - `src/mt/session.py`: which trading day to show.
 - `src/mt/overview.py`: day / week / year-to-date change and 52-week position per series.
+- `src/mt/candles.py`: moving averages, gaps, traded value, movers and unusual volume.
 - `src/mt/snapshot.py`: one plain dict that every screen reads; schema in [docs/snapshot.md](docs/snapshot.md).
 - `src/mt/app.py`, `widgets.py`, `app.tcss`: the Textual app; colours from the chart tokens in `plots.py`.
 - `src/mt/reports.py`: README findings, reproducible with `mt report <topic>`.

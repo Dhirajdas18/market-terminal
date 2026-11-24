@@ -6,8 +6,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from mt import plots
-from mt.data import FIXES, NSE_TICKERS, OFF_CALENDAR, flag_adjusted_drops, load_cache
+from mt import candles, plots
+from mt.data import (
+    FIXES,
+    NSE_TICKERS,
+    OFF_CALENDAR,
+    SYMBOLS,
+    daily_returns,
+    flag_adjusted_drops,
+    load_cache,
+)
 
 VOL_INDEX = "INDIAVIX"  # a volatility index halves for real; not a bad-print candidate
 
@@ -177,4 +185,189 @@ def report_overview(out_dir: Path, first_year: int = 2010) -> dict:
     }
 
 
-REPORTS = {"data": report_data, "overview": report_overview}
+def spike_reversals(
+    ret: pd.DataFrame,
+    index_ret: pd.Series,
+    up: float = 0.15,
+    back: float = 0.12,
+    index_max: float = 0.02,
+) -> list[tuple[str, pd.Timestamp]]:
+    """(symbol, date) where a stock moved more than `up` in a day and the next day moved more than
+    `back` the other way, while the index moved less than `index_max` on the first day: the shape
+    of a bad print that corrects itself."""
+    quiet = index_ret.abs().reindex(ret.index) < index_max
+    nxt = ret.shift(-1)
+    hit = (ret.abs() > up) & (nxt.abs() > back) & (np.sign(ret) != np.sign(nxt))
+    hit = hit.where(quiet, False)
+    return [(sym, day) for (day, sym), flag in hit.stack().items() if flag]
+
+
+def cluster_ols(
+    y: np.ndarray, X: np.ndarray, groups: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, int]:
+    """OLS of y on X with standard errors clustered by `groups` (CR1 small-sample factor).
+
+    Returns (coefficients, t-statistics, n). Rows on the same date share market-wide moves, so
+    treating them as independent would overstate t."""
+    n, k = X.shape
+    xtx_inv = np.linalg.inv(X.T @ X)
+    coef = xtx_inv @ X.T @ y
+    resid = y - X @ coef
+    scores = pd.DataFrame(X * resid[:, None]).groupby(np.asarray(groups)).sum().to_numpy()
+    g = len(scores)
+    meat = scores.T @ scores
+    cov = xtx_inv @ meat @ xtx_inv * (g / (g - 1)) * ((n - 1) / (n - k))
+    return coef, coef / np.sqrt(np.diag(cov)), n
+
+
+def next_day_table(ret: pd.DataFrame, volume: pd.DataFrame, top: float = 0.9) -> pd.DataFrame:
+    """One row per stock-day: `top` = the stock's volume ratio (today / mean of the previous 20
+    sessions) ranks in the top decile of that day's stocks, `today` and `next` = absolute return
+    that day and the next session. Everything on a row is known by that day except `next`."""
+    ratio = candles.unusual_volume(volume)
+    rank = ratio.rank(axis=1, pct=True)
+    frame = pd.DataFrame(
+        {
+            "top": (rank > top).stack(),
+            "today": ret.abs().stack(),
+            "next": ret.abs().shift(-1).stack(),
+        }
+    )
+    frame = frame[ratio.stack().reindex(frame.index).notna()].dropna()
+    frame.index.names = ["date", "symbol"]
+    return frame.reset_index()
+
+
+def _pct(value: float, digits: int = 2, sign: bool = False) -> str:
+    """'1.93%' (or '+0.50%') with a true minus sign."""
+    return f"{value * 100:{'+' if sign else ''}.{digits}f}%".replace("-", "−")
+
+
+def _t(value: float) -> str:
+    return f"{value:.1f}".replace("-", "−")
+
+
+def _gap_chart(gap: pd.Series, out_dir: Path) -> None:
+    edge = 0.02  # gaps beyond +-2% share the end bins
+    width = 0.0025
+    bins = np.arange(-edge, edge + width / 2, width)
+    counts, _ = np.histogram(gap.clip(-edge + width / 2, edge - width / 2), bins=bins)
+    centres = (bins[:-1] + bins[1:]) / 2
+    fig, ax = plt.subplots(figsize=(10, 4.6))
+    ax.bar(centres * 100, counts, width=width * 100 * 0.9, color=plots.SERIES[0])
+    ticks = np.arange(-2, 2.1, 0.5)
+    ax.set_xticks(ticks, [f"{t:+.1f}%".replace("-", "−") if t else "0" for t in ticks], fontsize=8)
+    ax.set_ylabel("sessions")
+    ax.set_xlabel("open vs previous close (outer bars include everything beyond ±2%)")
+    ax.grid(axis="x", visible=False)
+    within = float((gap.abs() < 0.005).mean())
+    ax.set_title(
+        f"NIFTY opening gap, {gap.index[0]:%Y}–{gap.index[-1]:%Y}\n"
+        f"{_pct(within, 0)} of {len(gap):,} sessions open within ±0.5% of the previous close"
+    )
+    plots.save(fig, out_dir, "candles_gaps")
+
+
+def _volume_chart(rows: dict[str, dict], title: str, out_dir: Path) -> None:
+    fig, ax = plt.subplots(figsize=(10, 4.6))
+    x = np.arange(len(rows))
+    top = [r["top"] * 100 for r in rows.values()]
+    other = [r["other"] * 100 for r in rows.values()]
+    ax.bar(x - 0.2, top, 0.4, color=plots.SERIES[0], label="top-decile volume day")
+    ax.bar(x + 0.2, other, 0.4, color=plots.SERIES[1], label="all other days")
+    ax.set_xticks(x, list(rows), fontsize=9)
+    ax.set_ylabel("mean absolute return the next session (%)")
+    ax.grid(axis="x", visible=False)
+    ax.legend(loc="upper right", fontsize=8, ncols=2)
+    ax.set_title(title)
+    plots.save(fig, out_dir, "candles_volume")
+
+
+def report_candles(out_dir: Path) -> dict:
+    """NIFTY's opening-gap distribution, and whether a stock's next-session move is larger after
+    a day of unusual volume (top decile of that day's volume ratios, prior 20 sessions only)."""
+    table = _table()
+    nifty = table[["open", "close"]].xs("NIFTY", axis=1, level=1).dropna()
+    gap = candles.gap(nifty["open"], nifty["close"]).dropna()
+    abs_gap = gap.abs()
+    out: dict = {
+        "NIFTY sessions with a gap": f"{len(gap):,} ({gap.index[0]:%Y-%m-%d} to "
+        f"{gap.index[-1]:%Y-%m-%d})",
+        "median |gap|": _pct(float(abs_gap.median()), 3),
+        "|gap| < 0.25%, < 0.5%, < 1%": tuple(_pct(float((abs_gap < b).mean()), 1) for b in
+                                                (0.0025, 0.005, 0.01)),
+        "|gap| > 2%": f"{int((abs_gap > 0.02).sum())} sessions",
+        "gap up (open above previous close)": _pct(float((gap > 0).mean()), 1),
+        "biggest gap up": f"{gap.idxmax():%Y-%m-%d} {_pct(float(gap.max()), 1, True)}",
+        "biggest gap down": f"{gap.idxmin():%Y-%m-%d} {_pct(float(gap.min()), 1, True)}",
+    }
+    _gap_chart(gap, out_dir)
+
+    close = table["close"][SYMBOLS]
+    sessions = close.dropna(how="all").index
+    ret = daily_returns(table["adj_close"][SYMBOLS].loc[sessions]).where(
+        close.loc[sessions].notna()
+    )
+    index_ret = table["adj_close"]["NIFTY"].dropna().pct_change().reindex(sessions)
+    quiet = spike_reversals(ret, index_ret)
+    anywhere = spike_reversals(ret, pd.Series(0.0, index=sessions))
+    out["spike-and-reverse days (>15% then >12% back, NIFTY < 2%)"] = (
+        [f"{s} {d:%Y-%m-%d}" for s, d in quiet] or "none"
+    )
+    out["same, ignoring the NIFTY condition"] = [f"{s} {d:%Y-%m-%d}" for s, d in anywhere] or "none"
+
+    rows = next_day_table(ret, table["volume"][SYMBOLS].loc[sessions])
+    mid = rows["date"].sort_values().iloc[len(rows) // 2]
+    parts = {
+        f"first half\n{rows['date'].min():%Y}–{mid:%Y}": rows[rows["date"] < mid],
+        f"second half\n{mid:%Y}–{rows['date'].max():%Y}": rows[rows["date"] >= mid],
+        "whole sample": rows,
+    }
+    result = {}
+    for name, part in parts.items():
+        flag = part["top"].to_numpy(dtype=float)
+        y = part["next"].to_numpy()
+        coef, t, _ = cluster_ols(y, np.column_stack([np.ones(len(part)), flag]), part["date"])
+        result[name] = {
+            "top": float(part.loc[part["top"], "next"].mean()),
+            "other": float(part.loc[~part["top"], "next"].mean()),
+            "diff": float(coef[1]),
+            "t": float(t[1]),
+            "n": len(part),
+            "n_top": int(part["top"].sum()),
+            "days": int(part["date"].nunique()),
+        }
+    whole = parts["whole sample"]
+    coef, t, _ = cluster_ols(
+        whole["next"].to_numpy(),
+        np.column_stack(
+            [np.ones(len(whole)), whole["top"].to_numpy(dtype=float), whole["today"].to_numpy()]
+        ),
+        whole["date"],
+    )
+    w = result["whole sample"]
+    out["stock-days (top decile)"] = f"{w['n']:,} ({w['n_top']:,}) on {w['days']:,} dates"
+    for name, r in result.items():
+        out[f"next-day |return|, {name.splitlines()[0]}"] = (
+            f"top decile {_pct(r['top'])}, others {_pct(r['other'])}, difference "
+            f"{_pct(r['diff'], 2, True)} (t {_t(r['t'])}, clustered by date)"
+        )
+    out["difference after controlling for today's |return|"] = (
+        f"{_pct(float(coef[1]), 3, True)} (t {_t(float(t[1]))}); today's |return| coefficient "
+        f"{coef[2]:.3f}"
+    )
+    first, second = list(result.values())[:2]
+    _volume_chart(
+        {k.replace("\n", " "): v for k, v in result.items()},
+        f"Next-session move: {_pct(w['top'])} after a top-decile volume day, "
+        f"{_pct(w['other'])} otherwise\n"
+        f"difference {_pct(w['diff'], 2, True)} (t {_t(w['t'])}); halves "
+        f"{_pct(first['diff'], 2, True)} and {_pct(second['diff'], 2, True)}\n"
+        f"with the day's own move held fixed: {_pct(float(coef[1]), 2, True)} "
+        f"(t {_t(float(t[1]))})",
+        out_dir,
+    )
+    return out
+
+
+REPORTS = {"data": report_data, "overview": report_overview, "candles": report_candles}

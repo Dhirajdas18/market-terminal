@@ -61,3 +61,50 @@ def test_correlation_t_stat():
     r, t, n = corr_t(pd.Series([1.0, 2.0, 3.0, 4.0, 5.0, 6.0]),
                      pd.Series([1.0, 2.1, 2.9, 4.2, 4.8, 6.1]))
     assert n == 6 and r > 0.99 and t > 20
+
+
+def test_spike_reversal_needs_a_big_move_a_big_reversal_and_a_quiet_index():
+    from mt.reports import spike_reversals
+
+    idx = pd.bdate_range("2024-01-01", periods=6)
+    ret = pd.DataFrame(
+        {
+            "A": [0.0, 0.18, -0.13, 0.0, 0.0, 0.0],  # spike and reverse
+            "B": [0.0, 0.18, 0.02, 0.0, 0.0, 0.0],  # spike, no reversal
+            "C": [0.0, 0.0, 0.0, 0.16, -0.13, 0.0],  # spike and reverse, but the index fell 5%
+        },
+        index=idx,
+    )
+    index = pd.Series([0.0, 0.0, 0.0, -0.05, 0.0, 0.0], index=idx)
+    assert spike_reversals(ret, index) == [("A", idx[1])]
+
+
+def test_clustered_t_is_smaller_than_plain_t_when_dates_share_a_shock():
+    from mt.reports import cluster_ols
+
+    rng = np.random.default_rng(0)
+    dates = np.repeat(np.arange(40), 25)
+    shock = np.repeat(rng.normal(0, 1, 40), 25)  # everything on a date moves together
+    flag = np.repeat((rng.random(40) < 0.5).astype(float), 25)  # a market-wide, per-date flag
+    y = 0.2 * flag + shock + rng.normal(0, 0.3, len(dates))
+    X = np.column_stack([np.ones(len(dates)), flag])
+    coef, t_cluster, n = cluster_ols(y, X, dates)
+    _, t_plain, _ = cluster_ols(y, X, np.arange(len(dates)))  # one cluster per row
+    assert n == 1000 and abs(coef[1] - 0.2) < 1.0
+    assert abs(t_cluster[1]) < abs(t_plain[1])
+
+
+def test_next_day_table_uses_only_prior_volume_and_next_return():
+    from mt.reports import next_day_table
+
+    idx = pd.bdate_range("2024-01-01", periods=24)
+    names = [f"S{i}" for i in range(10)]
+    vol = pd.DataFrame(100.0, index=idx, columns=names)
+    vol.loc[idx[21], "S3"] = 500.0  # S3 trades 5x its usual volume on day 21
+    ret = pd.DataFrame(0.01, index=idx, columns=names)
+    ret.loc[idx[22], "S3"] = -0.04
+    out = next_day_table(ret, vol)
+    row = out[(out["date"] == idx[21]) & (out["symbol"] == "S3")].iloc[0]
+    assert row["top"] and abs(row["today"] - 0.01) < 1e-12 and abs(row["next"] - 0.04) < 1e-12
+    assert out[out["date"] == idx[21]]["top"].sum() == 1
+    assert out["date"].max() == idx[22]  # the last day has no next-day return
