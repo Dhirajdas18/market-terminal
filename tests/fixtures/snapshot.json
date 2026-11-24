@@ -2775,13 +2775,23 @@
       },
       {
         "symbol": "ICICIBANK",
-        "points": 18.19,
+        "points": 30.19,
         "weight": 0.0871
       },
       {
+        "symbol": "LT",
+        "points": 28.98,
+        "weight": 0.0398
+      },
+      {
         "symbol": "TATASTEEL",
-        "points": 15.31,
+        "points": 25.31,
         "weight": 0.0212
+      },
+      {
+        "symbol": "SBIN",
+        "points": 15.2,
+        "weight": 0.0301
       },
       {
         "symbol": "MARUTI",
@@ -2789,19 +2799,9 @@
         "weight": 0.0211
       },
       {
-        "symbol": "LT",
-        "points": 8.98,
-        "weight": 0.0398
-      },
-      {
         "symbol": "ITC",
         "points": -6.36,
         "weight": 0.0344
-      },
-      {
-        "symbol": "SBIN",
-        "points": -5.2,
-        "weight": 0.0301
       },
       {
         "symbol": "BHARTIARTL",

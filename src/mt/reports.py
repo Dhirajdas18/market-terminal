@@ -500,7 +500,7 @@ def _tracking_charts(trk: pd.DataFrame, out_dir: Path) -> None:
     ax.set_xlabel("sum of weight × stock return, weights from the previous 60 sessions")
     ax.set_ylabel("NIFTY's day return")
     ax.set_title(
-        f"Estimated against actual NIFTY day return, {len(trk):,} sessions "
+        f"Estimated against actual NIFTY day return, {len(trk):,} bars "
         f"{trk.index[0]:%Y}–{trk.index[-1]:%Y}\ndashed line: estimate equals actual"
     )
     plots.save(fig, out_dir, "sectors_tracking")
@@ -518,15 +518,15 @@ def _tracking_charts(trk: pd.DataFrame, out_dir: Path) -> None:
     ax.set_xticks(x, [str(y)[2:] if y != years[0] else str(y) for y in years], fontsize=8)
     ax.set_ylim(0, 100)
     ax.set_yticks([0, 25, 50, 75, 100], ["0%", "25%", "50%", "75%", "100%"])
-    ax.set_ylabel("sessions within 10 index points")
+    ax.set_ylabel("bars within 10 index points")
     ax.grid(axis="x", visible=False)
     ax.legend(loc="upper left", fontsize=8, ncols=2)
-    ax.set_title("Share of sessions where the estimate is within 10 index points of NIFTY's move")
+    ax.set_title("Share of bars where the estimate is within 10 index points of NIFTY's move")
     plots.save(fig, out_dir, "sectors_error_by_year")
 
 
 def report_sectors(out_dir: Path) -> dict:
-    """Does the sum of estimated contributions add up to NIFTY's move, out of sample? Each session
+    """Does the sum of estimated contributions add up to NIFTY's move, out of sample? Each NIFTY bar
     from 2010 uses weights fitted on the 60 sessions before it only (price returns from `close`)."""
     table = _table()
     close = table["close"][[*SYMBOLS, "NIFTY"]]
@@ -534,8 +534,8 @@ def report_sectors(out_dir: Path) -> dict:
     err = trk["est_pts"] - trk["actual_pts"]
     eq_err = trk["eq_pts"] - trk["actual_pts"]
     out: dict = {
-        "sessions scored": f"{len(trk):,} ({trk.index[0]:%Y-%m-%d} to {trk.index[-1]:%Y-%m-%d})",
-        "stocks with a weight per session (min / median / max)": (
+        "bars scored": f"{len(trk):,} ({trk.index[0]:%Y-%m-%d} to {trk.index[-1]:%Y-%m-%d})",
+        "stocks with a weight per scored bar (min / median / max)": (
             int(trk["n_est"].min()),
             int(trk["n_est"].median()),
             int(trk["n_est"].max()),
@@ -550,7 +550,7 @@ def report_sectors(out_dir: Path) -> dict:
         for era, mask in eras.items():
             st = _tracking_stats(e[mask], trk["actual_pts"][mask])
             out[f"{label}, {era}"] = (
-                f"{int(mask.sum()):,} sessions; absolute error median {st['median']:.1f} pts, "
+                f"{int(mask.sum()):,} bars; absolute error median {st['median']:.1f} pts, "
                 f"90th percentile {st['p90']:.1f} pts; within 10 pts on {_pct(st['within'], 1)}; "
                 f"error / NIFTY's absolute move: median {_pct(st['rel_median'], 1)}, "
                 f"all days together {_pct(st['rel_total'], 1)}"
