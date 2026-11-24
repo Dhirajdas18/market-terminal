@@ -4,7 +4,7 @@ Every count says how many stocks it could be computed for. A stock with too litt
 measure (a recent listing: fewer than 50 closes for the 50-day average, fewer than 250 for the
 250-day high and low) is left out of that measure and of its denominator, as is a stock with no
 bar on the day. A stock with a missing close inside a window also drops out until the window is
-clear. Rows that are not trading days (see _sessions) are dropped before any window is taken.
+clear. Rows that are not trading days (see session.sessions) are dropped before any window is taken.
 """
 
 from pathlib import Path
@@ -14,6 +14,7 @@ import pandas as pd
 
 from mt import snapshot
 from mt.data import FIXES, SYMBOLS, daily_returns
+from mt.session import sessions
 
 MA_DAYS = 50
 HIGH_DAYS = 250  # sessions in the high/low window: about one 52-week year
@@ -36,14 +37,6 @@ def fixed_close(close: pd.DataFrame, fixes: Path = FIXES) -> pd.DataFrame:
     return px
 
 
-def _sessions(close: pd.DataFrame) -> pd.DataFrame:
-    """Rows that are trading days: at least half as many stocks with a close as on the busiest day.
-    Drops holiday rows (all NaN) and stray prints Yahoo gives one ticker on a non-trading day,
-    which would otherwise put a NaN in every other stock's window."""
-    count = close.notna().sum(axis=1)
-    return close[(count > 0) & (count >= count.max() / 2)]
-
-
 def advance_decline(day_ret: pd.Series) -> dict[str, int]:
     """Stocks up, down and unchanged on the day; a stock with no return is not counted."""
     ret = day_ret.dropna()
@@ -64,14 +57,14 @@ def _above(close: pd.DataFrame, n: int) -> tuple[pd.DataFrame, pd.DataFrame]:
 def above_ma(close: pd.DataFrame, n: int = MA_DAYS) -> dict[str, int]:
     """Stocks whose last close is above their n-day average of closes (today included), out of
     the stocks that have n closes and a bar today."""
-    above, valid = _above(_sessions(close), n)
+    above, valid = _above(sessions(close), n)
     return {"count": int(above.iloc[-1].sum()), "of": int(valid.iloc[-1].sum())}
 
 
 def new_highs_lows(close: pd.DataFrame, n: int = HIGH_DAYS) -> dict[str, int]:
     """Stocks whose last close is at or above the highest (at or below the lowest) of the n-1
     closes before it, out of the stocks with n closes and a bar today."""
-    px = _sessions(close)
+    px = sessions(close)
     prev = px.shift(1).rolling(n - 1, min_periods=n - 1)
     today = px.iloc[-1]
     valid = prev.max().iloc[-1].notna() & today.notna()
@@ -85,7 +78,7 @@ def new_highs_lows(close: pd.DataFrame, n: int = HIGH_DAYS) -> dict[str, int]:
 def history(close: pd.DataFrame, n: int = MA_DAYS) -> pd.DataFrame:
     """Per session: `above` and `of` (as in above_ma) and `pct_above50` = above / of (NaN while
     no stock has n closes). Each row uses only closes up to that day."""
-    above, valid = _above(_sessions(close), n)
+    above, valid = _above(sessions(close), n)
     out = pd.DataFrame({"above": above.sum(axis=1), "of": valid.sum(axis=1)})
     out["pct_above50"] = (out["above"] / out["of"].where(out["of"] > 0)).astype(float)
     return out

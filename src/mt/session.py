@@ -13,6 +13,20 @@ IST = "Asia/Kolkata"
 CLOSE_HOUR = 16  # bars before 16:00 IST are unfinished (NSE closes 15:30, plus settling time)
 
 
+def sessions(close: pd.DataFrame) -> pd.DataFrame:
+    """The rows of `close` that are NSE trading days: at least half as many stocks with a close as
+    on the busiest day. Drops holiday rows (all NaN) and stray prints Yahoo gives one ticker on a
+    non-trading day (a Saturday with one close), which would otherwise count as a session and a
+    missing bar for every other stock. Off-calendar series are ignored in the count and kept."""
+    count = close.drop(columns=list(OFF_CALENDAR.values()), errors="ignore").notna().sum(axis=1)
+    return close[(count > 0) & (count >= count.max() / 2)]
+
+
+def trim(table: pd.DataFrame, as_of: pd.Timestamp) -> pd.DataFrame:
+    """The table up to and including the session date, so no screen sees later data."""
+    return table.loc[:as_of]
+
+
 def _naive_ist(now: pd.Timestamp) -> pd.Timestamp:
     now = pd.Timestamp(now)
     return now.tz_convert(IST).tz_localize(None) if now.tzinfo is not None else now
@@ -29,17 +43,17 @@ def session_info(
     `close` is a date x symbol frame. Off-calendar series (USD/INR, S&P 500) are ignored. A symbol
     one or two sessions behind the newest date is late and holds the date back; one at least
     SUSPENDED_AFTER sessions behind is suspended (halted, or no longer quoted) and does not.
-    Sessions are the dates on which any NSE series has a close (NIFTY itself has Yahoo gaps)."""
+    Sessions are `sessions(close)`: the dates most NSE series trade on."""
     now = _naive_ist(now_ist)
     nse = close.drop(columns=list(OFF_CALENDAR.values()), errors="ignore")
     if now.hour < CLOSE_HOUR:
         nse = nse.loc[nse.index.normalize() < now.normalize()]
-    nse = nse.dropna(axis=1, how="all").dropna(axis=0, how="all")
+    nse = sessions(nse.dropna(axis=1, how="all"))
     if nse.empty:
         raise ValueError("no NSE closes before the session cut-off")
     last = nse.apply(pd.Series.last_valid_index)
-    sessions = nse.index
-    behind = len(sessions) - 1 - sessions.get_indexer(last)
+    days = nse.index
+    behind = len(days) - 1 - days.get_indexer(last)
     stale = last[behind >= SUSPENDED_AFTER]
     live = last[behind < SUSPENDED_AFTER]
     missing = sorted(live.index[live < live.max()])

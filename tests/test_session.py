@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from mt.session import session_date, session_info
+from mt.session import session_date, session_info, trim
 
 EVENING = pd.Timestamp("2026-11-24 20:00", tz="Asia/Kolkata")
 STOCKS = [f"S{i:02d}" for i in range(48)] + ["INFY", "TCS"]
@@ -76,3 +76,27 @@ def test_two_sessions_behind_is_still_a_late_bar():
     close = _close("2026-11-23")
     close.loc["2026-11-20":, "TCS"] = np.nan
     assert session_info(close, EVENING) == (D("2026-11-19"), ["TCS"], [])
+
+
+def test_one_ticker_stray_row_is_not_a_session():
+    close = _close("2026-11-23")
+    stray = pd.Series(np.nan, index=close.columns, name=D("2026-11-28"))  # a Saturday
+    stray["NIFTY"] = 105.0
+    close = pd.concat([close, stray.to_frame().T])
+    close.index.name = "date"
+    assert session_date(close, EVENING) == (D("2026-11-23"), [])
+
+
+def test_stray_row_does_not_push_a_real_late_stock_over_the_suspended_line():
+    close = _close("2026-11-23")
+    close.loc["2026-11-23", "TCS"] = np.nan  # one session behind: late, holds the date back
+    stray = pd.Series(np.nan, index=close.columns, name=D("2026-11-28"))
+    stray["NIFTY"] = 105.0
+    close = pd.concat([close, stray.to_frame().T])
+    assert session_info(close, EVENING) == (D("2026-11-20"), ["TCS"], [])
+
+
+def test_trim_cuts_the_table_at_the_session_date():
+    idx = pd.bdate_range("2026-11-16", periods=5)
+    table = pd.DataFrame({("close", "A"): range(5)}, index=idx)
+    assert trim(table, D("2026-11-18")).index.max() == D("2026-11-18")

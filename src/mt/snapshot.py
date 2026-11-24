@@ -12,7 +12,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from mt.session import _naive_ist, session_info
+from mt.session import _naive_ist, session_info, trim
 
 # (key, fn(table trimmed to the session date) -> JSON-able value); each topic appends its section.
 SECTIONS: list[tuple[str, Callable[[pd.DataFrame], Any]]] = []
@@ -25,7 +25,7 @@ def label(day: pd.Timestamp) -> str:
 
 def build(table: pd.DataFrame, now_ist: pd.Timestamp) -> dict:
     as_of, missing, suspended = session_info(table["close"], now_ist)
-    trimmed = table.loc[:as_of]
+    trimmed = trim(table, as_of)
     snap: dict[str, Any] = {
         "as_of": f"{as_of:%Y-%m-%d}",
         "as_of_label": label(as_of),
