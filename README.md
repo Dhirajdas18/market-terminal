@@ -293,7 +293,7 @@ for that day or the next.
 - **Both flags in one regression:** breadth −0.47% (t −0.8), NIFTY against its average +0.79% (t 1.2).
   The two flags give the same answer on 88% of sessions.
 - **Sample:** the 50 are today's NIFTY members applied to past years, so stocks that left the index
-  are missing: survivorship-biased; read the numbers as an upper bound.
+  are missing: survivorship-biased.
 - **Stock count:** the 50-day share is computed over 38 stocks on 2 Jan 2008, growing to 50.
 - `mt report breadth` prints every number above.
 

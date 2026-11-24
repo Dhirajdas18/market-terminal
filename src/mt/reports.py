@@ -466,7 +466,7 @@ def report_breadth(out_dir: Path) -> dict:
     )
     out["days the two flags agree"] = _pct(res["agree"], 0)
     out["standard errors"] = "Newey-West, 19 lags (20-session returns overlap by 19)"
-    out["sample"] = "today's 50 members applied to past years: survivorship-biased, an upper bound"
+    out["sample"] = "today's 50 members applied to past years: survivorship-biased"
     _breadth_charts(pct, res, out_dir)
     return out
 
