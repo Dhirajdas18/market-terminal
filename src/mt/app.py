@@ -14,6 +14,7 @@ from textual.widgets import DataTable, Footer, Static, TabbedContent, TabPane
 
 from mt import watchlist, widgets
 from mt.data import SYMBOLS, error_label
+from mt.snapshot import strip_controls
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +28,9 @@ def _pane_id(title: str) -> str:
 
 def masthead(snap: dict) -> Text:
     """Header line as plain Text: symbols and notices come from outside the repo, never markup."""
+    # and never control characters: a last guard against terminal escape sequences
+    keys = ("as_of_label", "stale", "missing", "suspended", "no_data", "notice")
+    snap = strip_controls({k: snap.get(k) for k in keys})
     text = Text(snap["as_of_label"], style="bold")
     if snap.get("stale"):
         text.append("  (last complete NSE session)", style=TEXT_2)

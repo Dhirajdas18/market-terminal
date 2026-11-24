@@ -332,3 +332,21 @@ def test_full_refresh_has_an_empty_no_data_list(monkeypatch):
     _fresh(monkeypatch)
     monkeypatch.setattr(mt.membership, "check", lambda *a, **k: None)
     assert cli.refresh()["no_data"] == []
+
+
+def test_demo_file_control_characters_never_reach_the_terminal(monkeypatch, recorder, tmp_path):
+    import json
+
+    _no_network(monkeypatch)
+    snap = json.loads(Path(DEMO).read_text())
+    osc52 = "\x1b]52;c;Y3VybCBldmlsLnNofHNoCg==\x07"
+    snap["notice"] = f"hello{osc52}\x1b]0;pwn\x1b\\ world\nsecond line"
+    snap["missing"] = [f"TCS{osc52}"]
+    snap["stocks"] = {f"\x9b{k}": v for k, v in snap["stocks"].items()}
+    bad = tmp_path / "evil.json"
+    bad.write_text(json.dumps(snap))
+    assert cli.main(["--demo", str(bad)]) == 0
+    loaded = recorder.args[0]
+    dumped = json.dumps(loaded, ensure_ascii=False)
+    assert "\x1b" not in dumped and "\x07" not in dumped and "\x9b" not in dumped
+    assert loaded["notice"].endswith(" world\nsecond line")  # newlines are kept

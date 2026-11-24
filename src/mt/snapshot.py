@@ -5,6 +5,7 @@ section in SECTIONS. A later live mode would replace only this producer.
 """
 
 import math
+import re
 from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any
@@ -39,6 +40,22 @@ def build(table: pd.DataFrame, now_ist: pd.Timestamp, no_data: list[str] = ()) -
     for key, fn in SECTIONS:
         snap[key] = fn(trimmed)
     return clean(snap)
+
+
+# C0 and C1 control characters except \n: ESC alone can start an OSC/CSI sequence (clipboard
+# writes, window titles, cursor moves) that Rich and Textual pass through to the terminal.
+_CONTROL = re.compile("[\x00-\x09\x0b-\x1f\x7f-\x9f]")
+
+
+def strip_controls(obj: Any) -> Any:
+    """A copy of a JSON-like value with control characters removed from every string and key."""
+    if isinstance(obj, str):
+        return _CONTROL.sub("", obj)
+    if isinstance(obj, dict):
+        return {strip_controls(k): strip_controls(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [strip_controls(v) for v in obj]
+    return obj
 
 
 def clean(obj: Any) -> Any:

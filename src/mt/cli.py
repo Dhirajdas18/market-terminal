@@ -119,11 +119,13 @@ def run_app() -> int:
 def run_demo(path: str) -> int:
     """Open the app on a snapshot JSON file: no network, no cache, no refresh."""
     from mt.app import TerminalApp
+    from mt.snapshot import strip_controls
 
     try:
         if Path(path).stat().st_size > DEMO_MAX_BYTES:
             raise ValueError("file too large (over 5 MB)")
-        snap = json.loads(Path(path).read_text(encoding="utf-8"))
+        # untrusted file: no control characters (terminal escape sequences) reach the screen
+        snap = strip_controls(json.loads(Path(path).read_text(encoding="utf-8")))
         if not isinstance(snap, dict) or "as_of" not in snap:
             raise ValueError('not a snapshot (expected an object with "as_of")')
     except (OSError, ValueError, RecursionError) as exc:  # unreadable, bad or too nested

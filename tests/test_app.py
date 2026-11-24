@@ -1032,3 +1032,15 @@ def test_header_names_constituents_yahoo_no_longer_quotes():
             return _masthead(app)
 
     assert "no Yahoo data: TCS, M&M" in asyncio.run(run())
+
+
+def test_header_strips_terminal_escapes_from_any_notice():
+    bad = {"notice": "x\x1b]52;c;ZXZpbA==\x07y\nz", "missing": ["A\x1b[2J"]}
+    app = TerminalApp({**SNAP, **bad}, None)
+
+    async def run():
+        async with app.run_test(size=(120, 36)):
+            return _masthead(app)
+
+    text = asyncio.run(run())
+    assert "\x1b" not in text and "\x07" not in text and "y\nz" in text
