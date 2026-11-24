@@ -259,3 +259,105 @@ def test_vix_tile_changes_are_not_coloured_up_or_down():
 
     assert change_styles(vix).isdisjoint({widgets.UP, widgets.DOWN})
     assert widgets.UP in change_styles(nifty)
+
+
+def _open_tab(app: TerminalApp, title: str) -> None:
+    from textual.widgets import TabbedContent
+
+    app.query_one(TabbedContent).active = widgets_pane(title)
+
+
+def widgets_pane(title: str) -> str:
+    from mt.app import _pane_id
+
+    return _pane_id(title)
+
+
+def test_chart_tab(snap_compare):
+    async def go(pilot):
+        _open_tab(pilot.app, "Chart")
+        await pilot.pause()
+        await pilot.pause()
+
+    assert snap_compare(TerminalApp(SNAP, None), run_before=go, terminal_size=(120, 36))
+
+
+def test_movers_tab(snap_compare):
+    async def go(pilot):
+        _open_tab(pilot.app, "Movers")
+        await pilot.pause()
+
+    assert snap_compare(TerminalApp(SNAP, None), run_before=go, terminal_size=(120, 36))
+
+
+def test_chart_is_built_only_when_its_tab_is_shown():
+    from textual_plotext import PlotextPlot
+
+    app = TerminalApp(SNAP, None)
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            await pilot.pause()
+            before = len(app.query(PlotextPlot))
+            _open_tab(app, "Chart")
+            await pilot.pause()
+            await pilot.pause()
+            return before, [p.id for p in app.query(PlotextPlot)]
+
+    before, after = asyncio.run(run())
+    assert before == 0
+    assert after == ["candles", "traded-value"]
+
+
+def test_chart_titles_say_what_the_bars_are():
+    app = TerminalApp(SNAP, None)
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Chart")
+            await pilot.pause()
+            await pilot.pause()
+            from textual_plotext import PlotextPlot
+
+            return {p.id: p.plt.build() for p in app.query(PlotextPlot)}
+
+    built = asyncio.run(run())
+    assert "Traded value of NIFTY 50 stocks (₹ cr)" in built["traded-value"]
+    assert "MA20" in built["candles"] and "MA50" in built["candles"]
+
+
+def test_movers_tables_show_signed_changes_and_ratio():
+    from textual.widgets import DataTable
+
+    app = TerminalApp(SNAP, None)
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Movers")
+            await pilot.pause()
+            out = {}
+            for ident in ("gainers", "losers", "unusual"):
+                t = app.query_one(f"#{ident}", DataTable)
+                out[ident] = [[str(c) for c in t.get_row_at(i)] for i in range(t.row_count)]
+            return out
+
+    out = asyncio.run(run())
+    assert out["gainers"][0] == ["AAAA", "+4.12%"]
+    assert out["losers"][0] == ["FFFF", "−5.18%"]
+    assert out["unusual"][0] == ["FFFF", "4.6×", "−5.18%"]
+    assert out["unusual"][2][2] == "—"  # a missing return shows a dash
+
+
+def test_movers_symbol_is_not_markup():
+    from textual.widgets import DataTable
+
+    mv = {"gainers": [{"symbol": "[bold]X[/]", "ret": 0.01}], "losers": [], "unusual": []}
+    app = TerminalApp({**SNAP, "movers": mv}, None)
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Movers")
+            await pilot.pause()
+            return str(app.query_one("#gainers", DataTable).get_row_at(0)[0])
+
+    assert asyncio.run(run()) == "[bold]X[/]"

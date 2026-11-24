@@ -48,3 +48,25 @@ List of six rows in this order: `NIFTY`, `NIFTYBANK`, `INDIAVIX`, `USDINR`, `GOL
 
 The overview tab shows the date under a tile only when it differs from `as_of`. Refreshing keeps the
 selected tab.
+
+### `index`
+
+NIFTY's last 250 sessions that have a bar (`mt.candles.index_series`). Moving averages are computed on the
+whole history in the table and then cut, so the first row already has one. Empty lists if the table has
+no NIFTY or no open/high/low/close/volume.
+
+| key | type | meaning |
+|---|---|---|
+| `dates` | list of `"YYYY-MM-DD"` | sessions, oldest first |
+| `open`, `high`, `low`, `close` | list of float | NIFTY's bars (Yahoo's `^NSEI`) |
+| `ma20`, `ma50` | list of float or `null` | trailing mean of the last 20 / 50 closes; `null` without a full window |
+| `value_cr` | list of float or `null` | traded value of the 50 stocks that day: sum of close × volume, in ₹ crore (a stock with no close or volume that day is left out; `null` if none has both). Yahoo's `^NSEI` volume has no documented meaning, so it is not used. |
+
+### `movers`
+
+Stocks with a bar on `as_of` only (`mt.candles.movers_section`).
+
+| key | type | meaning |
+|---|---|---|
+| `gainers`, `losers` | list of `{"symbol", "ret"}` | 5 biggest and smallest day returns (adjusted close, Yahoo errors repaired from `docs/data/yahoo_fixes.csv`); a stock with no return is skipped |
+| `unusual` | list of `{"symbol", "ratio", "ret"}` | 5 highest ratios of today's volume to the mean of the previous 20 sessions (today left out; a volume of 0 counts as missing; fewer than 20 prior sessions gives no ratio); `ret` is `null` if missing |

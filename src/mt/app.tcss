@@ -52,3 +52,37 @@ Footer {
     padding: 1 2;
     color: $mt-text-2;
 }
+
+#chart {
+    height: 1fr;
+}
+
+#candles {
+    height: 1fr;
+}
+
+#traded-value {
+    height: 10;
+}
+
+#movers {
+    height: 1fr;
+    padding: 1;
+}
+
+.movers-box {
+    width: 1fr;
+    height: auto;
+    margin-right: 2;
+}
+
+.subtitle {
+    color: $mt-text-2;
+    text-style: bold;
+    padding: 0 1;
+}
+
+DataTable {
+    background: $mt-surface;
+    height: auto;
+}
