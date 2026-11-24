@@ -34,8 +34,9 @@ def pct(value: float | None) -> str:
     return "—" if value is None else f"{value * 100:+.2f}%".replace("-", "−")
 
 
-def _signed(value: float | None) -> Text:
-    colour = MUTED if value is None or value == 0 else (UP if value > 0 else DOWN)
+def _signed(value: float | None, coloured: bool = True) -> Text:
+    """A signed change; green/red only for prices (a VIX rise is not good news: muted)."""
+    colour = MUTED if not coloured or value is None or value == 0 else (UP if value > 0 else DOWN)
     return Text(pct(value), style=colour)
 
 
@@ -50,14 +51,15 @@ def range_bar(pos: float | None) -> str:
 def tile_text(row: dict, as_of: str) -> Text:
     """One overview tile as plain Text (names and dates are data, never markup)."""
     name = str(row.get("name"))
+    tint = name != "INDIAVIX"
     text = Text(LABELS.get(name, name), style="bold")
     text.append("\n" + num(row.get("close")))
     text.append("  ")
-    text.append_text(_signed(row.get("day")))
+    text.append_text(_signed(row.get("day"), tint))
     text.append("\nweek ", style=MUTED)
-    text.append_text(_signed(row.get("week")))
+    text.append_text(_signed(row.get("week"), tint))
     text.append("  YTD ", style=MUTED)
-    text.append_text(_signed(row.get("ytd")))
+    text.append_text(_signed(row.get("ytd"), tint))
     text.append(f"\n{num(row.get('low52'))} {range_bar(row.get('pos52'))} {num(row.get('high52'))}",
                 style=MUTED)
     if row.get("date") and row["date"] != as_of:

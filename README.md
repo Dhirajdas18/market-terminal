@@ -86,11 +86,9 @@ previous Friday. NIFTY's return is vs its own previous NSE session; a missing NI
 for that day or the next.
 
 - **Whole period:** 0.265 (t 17.4) against the previous US session, 0.260 (t 17.0) against the same
-  date. The two are not distinguishable at this sample size.
+  date; the difference is 0.005 (no significance test was run on it).
 - **By year:** the previous session is higher in 8 of 17 years (2011, 2014, 2017, 2018, 2022, 2023,
   2025 and 2026, the last to 23 Nov), the same date in the other 9. Yearly values run from 0.00 to 0.40.
-- The S&P 500 tile therefore carries its own date because it is on another calendar, not because the
-  previous session fits NIFTY's day better.
 
 ## Design
 

@@ -247,3 +247,15 @@ def test_refresh_keeps_the_selected_tab(monkeypatch):
     first, chosen, after, text = asyncio.run(run())
     assert chosen != first and after == chosen
     assert "Data for Tue 24 Nov 2026" in text
+
+
+def test_vix_tile_changes_are_not_coloured_up_or_down():
+    vix = next(r for r in SNAP["overview"] if r["name"] == "INDIAVIX")
+    nifty = next(r for r in SNAP["overview"] if r["name"] == "NIFTY")
+
+    def change_styles(row):
+        text = widgets.tile_text(row, SNAP["as_of"])
+        return {str(s.style) for s in text.spans if text.plain[s.start:s.end].endswith("%")}
+
+    assert change_styles(vix).isdisjoint({widgets.UP, widgets.DOWN})
+    assert widgets.UP in change_styles(nifty)
