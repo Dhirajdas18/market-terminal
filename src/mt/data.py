@@ -165,6 +165,19 @@ def _write_atomic(table: pa.Table, path: Path) -> None:
         tmp_path.unlink(missing_ok=True)
 
 
+def _fresh_table(fetch: Callable[..., pd.DataFrame], start: str) -> pa.Table:
+    """Download from `start` and return it as an Arrow table (the pandas frame is dropped)."""
+    new = download(lambda: fetch(start), missing_symbols)
+    new = new.dropna(how="all").sort_index().sort_index(axis=1)
+    new.columns.names = ["field", "symbol"]
+    new.index.name = "date"
+    return pa.Table.from_pandas(new)
+
+
+def _first_date(table: pa.Table):
+    return pc.min(table["date"]).as_py()
+
+
 def update_cache(
     path: Path = DATA_PATH,
     fetch: Callable[..., pd.DataFrame] = fetch,
@@ -181,17 +194,15 @@ def update_cache(
     path = Path(path)
     last = _last_date(path)
     start = START if last is None else (last - pd.Timedelta(days=overlap_days)).strftime("%Y-%m-%d")
-    new = download(lambda: fetch(start), missing_symbols)
-    new = new.dropna(how="all").sort_index().sort_index(axis=1)
-    new.columns.names = ["field", "symbol"]
-    new.index.name = "date"
-    fresh = pa.Table.from_pandas(new)
-    first_new = new.index.min()
-    del new
+    fresh = _fresh_table(fetch, start)
+    if last is not None and pq.read_schema(path).names != fresh.schema.names:
+        # the ticker set changed (a NIFTY 50 rebalance): the old rows no longer fit, start over
+        log.warning("cached columns differ from the current tickers: downloading everything again")
+        last, fresh = None, _fresh_table(fetch, START)
     if last is None:
         merged = fresh
     else:
-        old = pq.read_table(path, filters=[("date", "<", first_new.to_pydatetime())])
+        old = pq.read_table(path, filters=[("date", "<", _first_date(fresh))])
         merged = pa.concat_tables([old, fresh.cast(old.schema)])
         del old
     del fresh

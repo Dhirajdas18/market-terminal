@@ -176,3 +176,35 @@ def test_yfinance_caches_live_in_a_private_dir(tmp_path, monkeypatch):
         data.fetch("2026-01-01")
     assert seen["dir"] == str(tmp_path / "cfg" / "yfinance")
     assert stat.S_IMODE((tmp_path / "cfg" / "yfinance").stat().st_mode) == 0o700
+
+
+def _write_cache(path, table):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    pq.write_table(pa.Table.from_pandas(table), path)
+
+
+@pytest.mark.parametrize("change", ["extra", "missing"])
+def test_changed_ticker_set_triggers_a_full_redownload(tmp_path, change):
+    path = tmp_path / "p.parquet"
+    old = _table("2026-11-02", "2026-11-20")
+    if change == "extra":
+        old = pd.concat([old, _table("2026-11-02", "2026-11-20", symbols=["OLDCO"])], axis=1)
+    else:
+        old = old.drop(columns=["TCS"], level="symbol")
+    _write_cache(path, old.sort_index(axis=1))
+    fetch = FakeFetch(end="2026-11-23")
+    tail = update_cache(path, fetch=fetch, since=pd.Timestamp("2026-11-01"))
+    assert fetch.calls == ["2026-11-13", "2007-01-01"]
+    want = sorted(_table("2026-11-23", "2026-11-23").columns)
+    assert sorted(tail.columns) == want and sorted(load_cache(path).columns) == want
+    assert load_cache(path).index.min() == pd.Timestamp("2007-01-01")
+
+
+def test_matching_columns_keep_the_incremental_path(tmp_path):
+    path = tmp_path / "p.parquet"
+    update_cache(path, fetch=FakeFetch(end="2026-11-20"))
+    fetch = FakeFetch(end="2026-11-23")
+    update_cache(path, fetch=fetch, since=pd.Timestamp("2026-11-01"))
+    assert fetch.calls == ["2026-11-13"]
