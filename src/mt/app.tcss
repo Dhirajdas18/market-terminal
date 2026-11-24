@@ -119,3 +119,44 @@ DataTable {
     height: auto;
     margin-right: 2;
 }
+
+#watchlist {
+    height: 1fr;
+    padding: 1;
+}
+
+#watchlist-empty {
+    height: auto;
+}
+
+#stock-title {
+    height: auto;
+    padding: 1 2 0 2;
+    background: $mt-surface;
+}
+
+#stock-numbers {
+    height: auto;
+    padding: 0 2 1 2;
+}
+
+#stock-candles {
+    height: 1fr;
+}
+
+PickStock {
+    align: center middle;
+}
+
+#pick-box {
+    width: 50;
+    height: 80%;
+    padding: 1 2;
+    background: $mt-raised;
+    border: round $mt-accent;
+}
+
+#pick-list {
+    height: 1fr;
+    background: $mt-raised;
+}

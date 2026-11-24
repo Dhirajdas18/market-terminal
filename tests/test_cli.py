@@ -19,6 +19,7 @@ def _cache() -> pd.DataFrame:
 class Recorder:
     def __init__(self, snapshot, refresh=None, update_on_mount=False, **kw):
         Recorder.args = (snapshot, refresh, update_on_mount)
+        Recorder.kw = kw
         self.return_code = 0
 
     def run(self):
@@ -125,3 +126,24 @@ def test_demo_bad_file_exits_cleanly(tmp_path, capsys, recorder, content):
     assert cli.main(["--demo", str(path)]) == 1
     err = capsys.readouterr().err
     assert "demo" in err.lower() and "Traceback" not in err
+
+
+def test_every_topic_section_is_built_by_the_real_launch_path():
+    snap = cli.snapshot_from(_cache())
+    for key in ("overview", "index", "movers", "breadth", "sectors", "contributions", "stocks"):
+        assert key in snap
+
+
+def test_app_opens_on_the_watchlist_file_but_the_demo_keeps_it_in_memory(
+    monkeypatch, recorder, tmp_path
+):
+    import mt.watchlist
+
+    monkeypatch.setattr(mt.watchlist, "WATCHLIST", tmp_path / "w.json")
+    monkeypatch.setattr(mt.data, "load_cache", lambda since=None: _cache())
+    cli.run_app()
+    assert recorder.kw["watchlist_path"] == tmp_path / "w.json"
+    demo = tmp_path / "demo.json"
+    demo.write_text('{"as_of": "2026-11-23"}')
+    cli.run_demo(str(demo))
+    assert "watchlist_path" not in recorder.kw

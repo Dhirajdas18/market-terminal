@@ -569,3 +569,371 @@ def test_sectors_tab_empty_section():
             return [str(s.content) for s in app.query(Static) if s.has_class("empty")]
 
     assert "No sector data." in asyncio.run(run())
+
+
+# --- Watchlist and stock view -------------------------------------------------------------
+
+def _wl_app(tmp_path=None, snap=None, saved=None):
+    """An app whose watchlist lives in tmp_path (never the real config directory)."""
+    path = None
+    if tmp_path is not None:
+        path = tmp_path / "watchlist.json"
+        if saved is not None:
+            path.write_text(json.dumps(saved))
+    return TerminalApp(snap or SNAP, None, watchlist_path=path), path
+
+
+def _cells(table) -> list[list[str]]:
+    return [[str(c.plain if hasattr(c, "plain") else c) for c in table.get_row_at(i)]
+            for i in range(table.row_count)]
+
+
+def _texts(app) -> str:
+    return " ".join(str(s.content) for s in app.query(Static))
+
+
+def test_watchlist_tab(snap_compare):
+    async def go(pilot):
+        _open_tab(pilot.app, "Watchlist")
+        await pilot.pause()
+        await pilot.pause()
+
+    assert snap_compare(TerminalApp(SNAP, None), run_before=go, terminal_size=(120, 36))
+
+
+def test_stock_view(snap_compare):
+    async def go(pilot):
+        _open_tab(pilot.app, "Watchlist")
+        await pilot.pause()
+        await pilot.press("down", "enter")
+        await pilot.pause()
+        await pilot.pause()
+        await pilot.pause()
+
+    assert snap_compare(TerminalApp(SNAP, None), run_before=go, terminal_size=(120, 36))
+
+
+def test_watchlist_rows_show_numbers_and_dashes_for_a_new_listing():
+    from textual.widgets import DataTable
+
+    app, _ = _wl_app()
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Watchlist")
+            await pilot.pause()
+            return _cells(app.query_one("#watchlist-table", DataTable))
+
+    rows = asyncio.run(run())
+    assert [r[0] for r in rows] == ["HDFCBANK", "RELIANCE", "LT", "JIOFIN"]  # the demo seed
+    assert rows[1][1:] == ["1,400.00", "−2.41%", "−4.62%", "+2.93%", "16.3%", "0.97"]
+    assert rows[3][1:] == ["310.00", "+0.04%", "−5.42%", "—", "—", "—"]
+
+
+def test_empty_watchlist_says_how_to_add():
+    app, _ = _wl_app(snap={**SNAP, "watchlist": []})
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Watchlist")
+            await pilot.pause()
+            return _texts(app)
+
+    assert "Press a to add" in asyncio.run(run())
+
+
+def test_file_with_unknown_and_junk_symbols_still_opens(tmp_path):
+    from textual.widgets import DataTable
+
+    app, _ = _wl_app(tmp_path, saved=["RELIANCE", "GONE", "[bold]x", 7])
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Watchlist")
+            await pilot.pause()
+            return _cells(app.query_one("#watchlist-table", DataTable))
+
+    assert [r[0] for r in asyncio.run(run())] == ["RELIANCE"]
+
+
+def test_corrupt_file_opens_an_empty_watchlist(tmp_path):
+    app, path = _wl_app(tmp_path)
+    path.write_text("{oops")
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            await pilot.pause()
+            return app.watchlist
+
+    assert asyncio.run(run()) == []
+
+
+def test_a_then_enter_adds_the_stock_and_writes_the_file(tmp_path):
+    from textual.widgets import DataTable
+
+    app, path = _wl_app(tmp_path, saved=["RELIANCE"])
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Watchlist")
+            await pilot.pause()
+            await pilot.press("a")
+            await pilot.pause()
+            await pilot.press("down", "enter")  # BHARTIARTL is first, COALINDIA second
+            await pilot.pause()
+            await pilot.pause()
+            return app.watchlist, _cells(app.query_one("#watchlist-table", DataTable))
+
+    held, rows = asyncio.run(run())
+    assert held == ["RELIANCE", "COALINDIA"]
+    assert [r[0] for r in rows] == ["RELIANCE", "COALINDIA"]
+    assert json.loads(path.read_text()) == ["RELIANCE", "COALINDIA"]
+    assert (path.stat().st_mode & 0o777) == 0o600
+
+
+def test_picker_lists_only_stocks_not_yet_watched_and_escape_cancels(tmp_path):
+    from textual.widgets import OptionList
+
+    app, path = _wl_app(tmp_path, saved=["RELIANCE"])
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Watchlist")
+            await pilot.pause()
+            await pilot.press("a")
+            await pilot.pause()
+            ids = [o.id for o in app.screen.query_one(OptionList).options]
+            await pilot.press("escape")
+            await pilot.pause()
+            return ids, app.watchlist, len(app.screen_stack)
+
+    ids, held, depth = asyncio.run(run())
+    assert "RELIANCE" not in ids and ids[0] == "BHARTIARTL" and len(ids) == 11
+    assert held == ["RELIANCE"] and depth == 1
+    assert json.loads(path.read_text()) == ["RELIANCE"]
+
+
+def test_d_removes_the_highlighted_row_and_writes_the_file(tmp_path):
+    from textual.widgets import DataTable
+
+    app, path = _wl_app(tmp_path, saved=["RELIANCE", "LT", "ITC"])
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Watchlist")
+            await pilot.pause()
+            await pilot.press("down", "down", "d")  # focus the table, then LT
+            await pilot.pause()
+            await pilot.pause()
+            return app.watchlist, _cells(app.query_one("#watchlist-table", DataTable))
+
+    held, rows = asyncio.run(run())
+    assert held == ["RELIANCE", "ITC"] and [r[0] for r in rows] == ["RELIANCE", "ITC"]
+    assert json.loads(path.read_text()) == ["RELIANCE", "ITC"]
+
+
+def test_a_and_d_only_on_the_watchlist_tab():
+    app, _ = _wl_app()
+
+    def keys():
+        return {k for k in ("a", "d") if k in app.active_bindings}
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            out = {}
+            for tab in ("Overview", "Movers", "Sectors", "Watchlist"):
+                _open_tab(app, tab)
+                await pilot.pause()
+                await pilot.pause()
+                out[tab] = keys()
+            return out
+
+    out = asyncio.run(run())
+    assert out["Overview"] == out["Movers"] == out["Sectors"] == set()
+    assert out["Watchlist"] == {"a", "d"}
+
+
+def test_a_failed_save_names_the_error_and_keeps_the_list(tmp_path):
+    blocker = tmp_path / "file"
+    blocker.write_text("x")
+    app = TerminalApp(SNAP, None, watchlist_path=blocker / "sub" / "watchlist.json")
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Watchlist")
+            await pilot.pause()
+            await pilot.press("a", "enter")
+            await pilot.pause()
+            await pilot.pause()
+            return _masthead(app), app.watchlist
+
+    text, held = asyncio.run(run())
+    assert "Watchlist not saved" in text
+    assert "BHARTIARTL" in held  # still shown for this session
+
+
+def _stock_screen_text(app) -> str:
+    return " ".join(str(s.content) for s in app.screen.query(Static))
+
+
+def test_enter_on_a_sectors_row_opens_the_stock_and_escape_closes_it():
+    app, _ = _wl_app()
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Sectors")
+            await pilot.pause()
+            before = len(app.screen_stack)
+            await pilot.press("down", "enter")
+            await pilot.pause()
+            await pilot.pause()
+            opened = (
+                len(app.screen_stack),
+                _stock_screen_text(app),
+                len(app.screen.query(widgets.TokenPlot)),
+            )
+            await pilot.press("escape")
+            await pilot.pause()
+            return before, opened, len(app.screen_stack)
+
+    before, (depth, text, plots), after = asyncio.run(run())
+    assert (before, depth, after) == (1, 2, 1)
+    assert "RELIANCE" in text and "Oil Gas & Consumable Fuels" in text
+    assert "Beta" in text and "0.97" in text and "16.3%" in text and "−10.2%" in text
+    assert "₹1,612" in text and "₹1,00,000" in text
+    assert plots == 1
+
+
+def test_enter_on_a_movers_row_opens_a_stock_that_is_not_in_the_snapshot():
+    app, _ = _wl_app()
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Movers")
+            await pilot.pause()
+            await pilot.press("down", "enter")
+            await pilot.pause()
+            return _stock_screen_text(app)
+
+    assert "No data for AAAA in this snapshot" in asyncio.run(run())
+
+
+def test_enter_on_a_watchlist_row_opens_a_new_listing_with_dashes_and_a_reason():
+    app, _ = _wl_app()
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Watchlist")
+            await pilot.pause()
+            await pilot.press("down", "down", "down", "down", "enter")  # JIOFIN, row 4
+            await pilot.pause()
+            await pilot.pause()
+            return _stock_screen_text(app)
+
+    text = asyncio.run(run())
+    assert "JIOFIN" in text and "Beta" in text and "not enough history" in text
+    assert "None" not in text and "NaN" not in text and " nan" not in text
+
+
+def test_stock_view_is_not_built_until_a_row_is_opened(monkeypatch):
+    built = []
+    real = widgets.StockScreen.__init__
+
+    def spy(self, symbol):
+        built.append(symbol)
+        real(self, symbol)
+
+    monkeypatch.setattr(widgets.StockScreen, "__init__", spy)
+    app, _ = _wl_app()
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            for tab in ("Movers", "Sectors", "Watchlist"):
+                _open_tab(app, tab)
+                await pilot.pause()
+            assert built == []
+            await pilot.press("down", "enter")
+            await pilot.pause()
+
+    asyncio.run(run())
+    assert built == ["HDFCBANK"]
+
+
+def test_stock_view_text_from_the_snapshot_is_not_markup():
+    snap = json.loads(json.dumps(SNAP))
+    snap["stocks"]["RELIANCE"]["sector"] = "[bold red]Oil[/] & Gas"
+    app, _ = _wl_app(snap=snap)
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Sectors")
+            await pilot.pause()
+            await pilot.press("down", "enter")
+            await pilot.pause()
+            return _stock_screen_text(app)
+
+    assert "[bold red]Oil[/] & Gas" in asyncio.run(run())
+
+
+def test_refresh_while_a_stock_is_open_keeps_it_and_updates_the_screen_beneath():
+    new = {**SNAP, "as_of_label": "Data for Tue 24 Nov 2026"}
+    app = TerminalApp(SNAP, lambda: new, watchlist_path=None)
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Sectors")
+            await pilot.pause()
+            await pilot.press("down", "enter")
+            await pilot.pause()
+            await pilot.press("r")
+            await _settled(app, pilot)
+            during = (len(app.screen_stack), _stock_screen_text(app))
+            await pilot.press("escape")
+            await pilot.pause()
+            await pilot.pause()
+            return during, _masthead(app), len(app.screen_stack)
+
+    (depth, text), masthead, after = asyncio.run(run())
+    assert depth == 2 and "RELIANCE" in text
+    assert "Tue 24 Nov 2026" in masthead and after == 1
+
+
+def test_candles_in_the_stock_view_use_the_chart_drawing_code():
+    app, _ = _wl_app()
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Sectors")
+            await pilot.pause()
+            await pilot.press("down", "enter")
+            await pilot.pause()
+            await pilot.pause()
+            plot = app.screen.query_one(widgets.TokenPlot)
+            return plot.plt._title if hasattr(plot.plt, "_title") else str(plot.plt.build())
+
+    assert "RELIANCE · last" in asyncio.run(run())
+
+
+def test_indian_grouping_of_rupees():
+    assert widgets.inr(1_00_000) == "₹1,00,000"
+    assert widgets.inr(2300) == "₹2,300"
+    assert widgets.inr(12_34_567) == "₹12,34,567"
+    assert widgets.inr(950.4) == "₹950"
+
+
+def test_tab_keys_do_nothing_while_the_stock_view_is_open():
+    app, _ = _wl_app()
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Watchlist")
+            await pilot.pause()
+            await pilot.press("down", "enter")
+            await pilot.pause()
+            keys = {k for k in ("a", "d", "y", "down") if k in app.active_bindings}
+            await pilot.press("a", "d", "y")
+            await pilot.pause()
+            return keys, len(app.screen_stack), app.watchlist
+
+    keys, depth, held = asyncio.run(run())
+    assert keys == set() and depth == 2 and held == ["HDFCBANK", "RELIANCE", "LT", "JIOFIN"]

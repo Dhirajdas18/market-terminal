@@ -104,3 +104,23 @@ stocks with a bar on `as_of`, `n` the number of stocks in that mean. A sector wi
 | `not_estimated` | list of symbols | stocks with a bar today but fewer than 60 valid returns in that span: no weight, no points |
 | `sum_points` | float | sum of the points of all stocks with a weight |
 | `actual_points` | float | NIFTY's close minus its previous close |
+
+### `stocks`
+
+`{symbol: {...}}` for each of the 50 with a close (`mt.stock.stocks_section`); `{}` if the table has no open, high, low, close or adjusted close. Returns are `daily_returns` of adjusted closes (known Yahoo errors repaired) on NSE sessions only, and a day without a bar for the stock has no return. A measure that needs a full window is `null` until the stock has it.
+
+| key | type | meaning |
+|---|---|---|
+| `close` | float | last valid close (2 decimals, split-adjusted) |
+| `day` | float or null | return on `as_of`; `null` if the stock has no bar that day |
+| `m1`, `y1` | float or null | compounded return of the last 21 / 250 returns; `null` with fewer |
+| `vol` | float or null | standard deviation of the last 250 returns x the square root of returns per calendar year over their span; `null` with fewer than 250 |
+| `beta` | float or null | 0.67 x the OLS slope against NIFTY + 0.33, over the last 250 returns both have; `null` with fewer, or if NIFTY did not move |
+| `mdd` | float or null | worst fall from a peak over the last 250 closes (negative or 0); `null` with fewer |
+| `var95` | float or null | historical 5th-percentile one-day loss in rupees on 1,00,000 over the last 500 returns (0 or more); `null` with fewer than 250 |
+| `sector` | string or null | NSE industry from `docs/data/nifty50.csv` |
+| `candles` | object | `dates`, `open`, `high`, `low`, `close`, `ma20`, `ma50`: parallel arrays of the last 250 sessions the stock has (fewer for a recent listing), prices to 2 decimals; the averages use the whole history and are `null` until a full window exists |
+
+### `watchlist` (demo files only)
+
+Optional list of symbols. A live snapshot never has it: the app reads `~/.config/market-terminal/watchlist.json`. `mt --demo` seeds an in-memory watchlist from this key (symbols not in `stocks` are dropped) and never reads or writes the real file.

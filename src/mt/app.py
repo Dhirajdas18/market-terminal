@@ -10,10 +10,10 @@ from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.widgets import Footer, Static, TabbedContent, TabPane
+from textual.widgets import DataTable, Footer, Static, TabbedContent, TabPane
 
-from mt import widgets
-from mt.data import error_label
+from mt import watchlist, widgets
+from mt.data import SYMBOLS, error_label
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +48,9 @@ class TerminalApp(App):
         Binding("r", "refresh_data", "Refresh"),
         Binding("y", "show_year", "1 year"),
         Binding("y", "fit_width", "Fit width"),
+        Binding("a", "add_stock", "Add stock"),
+        Binding("d", "remove_stock", "Remove"),
+        Binding("down", "focus_table", "Pick a stock"),
     ]
 
     def __init__(
@@ -56,15 +59,27 @@ class TerminalApp(App):
         refresh: Callable[[], dict] | None = None,
         update_on_mount: bool = False,
         refresh_off_notice: str = "Refresh is not available here.",
+        watchlist_path: Path | None = None,
     ):
         """`refresh` downloads and returns a new snapshot (run in a thread worker). With
-        `update_on_mount` the app shows `snapshot` (the cache) at once, then refreshes."""
+        `update_on_mount` the app shows `snapshot` (the cache) at once, then refreshes.
+        `watchlist_path` is the watchlist file; None keeps the list in memory only (demo and
+        tests), seeded from the snapshot's optional "watchlist" list."""
         super().__init__()
         self.snapshot = snapshot
+        self._watchlist_path = watchlist_path
+        self.watchlist: list[str] = self._initial_watchlist()
+        self._ui_stale = False
         self._refresh_fn = refresh
         self._update_on_mount = update_on_mount
         self._refreshing = False
         self._refresh_off_notice = refresh_off_notice
+
+    def _initial_watchlist(self) -> list[str]:
+        if self._watchlist_path is not None:
+            return watchlist.load(self._watchlist_path, known=SYMBOLS)
+        seed = self.snapshot.get("watchlist")
+        return watchlist.validate(seed, list(self.snapshot.get("stocks") or {}))
 
     def on_mount(self) -> None:
         if self._update_on_mount and self._refresh_fn is not None:
@@ -83,21 +98,97 @@ class TerminalApp(App):
         with TabbedContent():
             for title, make in widgets.TABS:
                 with TabPane(title, id=_pane_id(title)):
-                    yield make(self.snapshot)
+                    yield make({**self.snapshot, "watchlist": self.watchlist})
 
     def _chart_state(self) -> bool | None:
         """None when the Chart tab is not the active one, else whether it shows the year."""
-        tabs = self.query(TabbedContent)
         panels = self.query(widgets.ChartPanel)
-        if not tabs or not panels or tabs.first().active != _pane_id("Chart"):
+        if not panels or self._active_tab() != _pane_id("Chart"):
             return None
         return panels.first().full
 
+    def _active_tab(self) -> str | None:
+        """The id of the shown tab pane; None when another screen (the stock view, a picker) is on
+        top. App.query always searches the main screen, so the stack is checked first."""
+        if len(self.screen_stack) > 1:
+            return None
+        tabs = self.query(TabbedContent)
+        return tabs.first().active if tabs else None
+
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action == "add_stock":
+            return self._active_tab() == _pane_id("Watchlist")
+        if action == "remove_stock":
+            return self._active_tab() == _pane_id("Watchlist") and bool(self.watchlist)
+        if action == "focus_table":  # from the tab bar, go down into the tab's stock table
+            return self._symbol_table() is not None and not isinstance(self.focused, DataTable)
         if action not in ("show_year", "fit_width"):
             return True
         state = self._chart_state()  # one key, two labels: show only the one that applies
         return state is not None and state == (action == "fit_width")
+
+    def _symbol_table(self) -> DataTable | None:
+        active = self._active_tab()
+        if active is None:
+            return None
+        tables = self.query_one(f"#{active}").query("DataTable.symbols")
+        return tables.first() if tables else None
+
+    def action_focus_table(self) -> None:
+        table = self._symbol_table()
+        if table is not None:
+            table.focus()
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        if event.data_table.has_class("symbols") and event.row_key.value:
+            self.push_screen(widgets.StockScreen(str(event.row_key.value)))
+
+    def close_stock(self) -> None:
+        """Leave the stock view; if a refresh finished meanwhile, redraw the tabs with it."""
+        if len(self.screen_stack) > 1:
+            self.pop_screen()
+        if self._ui_stale:
+            self._ui_stale = False
+            self.call_later(self._recompose_tabs)
+
+    async def _recompose_tabs(self) -> None:
+        tabs = self.query(TabbedContent)
+        keep = tabs.first().active if tabs else None
+        await self.recompose()
+        tabs = self.query(TabbedContent)
+        if keep and tabs and tabs.first().active != keep:
+            tabs.first().active = keep
+
+    def action_add_stock(self) -> None:
+        stocks = self.snapshot.get("stocks") or {}
+        choices = [
+            (sym, stocks[sym].get("sector")) for sym in sorted(stocks) if sym not in self.watchlist
+        ]
+        self.push_screen(widgets.PickStock(choices), self._added)
+
+    def _added(self, symbol: str | None) -> None:
+        if symbol and symbol not in self.watchlist:
+            self.watchlist = [*self.watchlist, symbol]
+            self._watchlist_changed()
+
+    def action_remove_stock(self) -> None:
+        panels = self.query(widgets.WatchlistPanel)
+        symbol = panels.first().highlighted() if panels else None
+        if symbol in self.watchlist:
+            self.watchlist = [s for s in self.watchlist if s != symbol]
+            self._watchlist_changed()
+
+    def _watchlist_changed(self) -> None:
+        for panel in self.query(widgets.WatchlistPanel):
+            panel.set_symbols(self.watchlist)
+        self.refresh_bindings()
+        if self._watchlist_path is None:
+            return
+        try:
+            watchlist.save(self.watchlist, self._watchlist_path)
+        except OSError as exc:  # the list stays for this session
+            log.warning("watchlist not saved: %s: %s", type(exc).__name__, exc)
+            self._set_notice(f"Watchlist not saved: {type(exc).__name__}")
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         self.refresh_bindings()
@@ -122,12 +213,10 @@ class TerminalApp(App):
     async def _show(self, snap: dict) -> None:
         self._refreshing = False
         self.snapshot = snap
-        tabs = self.query(TabbedContent)
-        keep = tabs.first().active if tabs else None
-        await self.recompose()
-        tabs = self.query(TabbedContent)
-        if keep and tabs and tabs.first().active != keep:
-            tabs.first().active = keep
+        if len(self.screen_stack) > 1:  # the stock view is open: redraw the tabs when it closes
+            self._ui_stale = True
+            return
+        await self._recompose_tabs()
 
     def _failed(self, label: str) -> None:
         self._refreshing = False
@@ -135,7 +224,7 @@ class TerminalApp(App):
 
     def _set_notice(self, notice: str | None) -> None:
         self.snapshot = {**self.snapshot, "notice": notice}
-        self.query_one("#masthead", Static).update(masthead(self.snapshot))
+        self.screen_stack[0].query_one("#masthead", Static).update(masthead(self.snapshot))
 
     def action_refresh_data(self) -> None:
         if self._refresh_fn is None:

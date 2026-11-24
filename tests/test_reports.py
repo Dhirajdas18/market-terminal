@@ -119,3 +119,18 @@ def test_tracking_stats_share_within_and_error_against_the_move():
     assert st["within"] == 0.75 and st["median"] == 3.0
     assert abs(st["rel_median"] - 0.2) < 1e-12  # relative errors 0.1, 0.2, 0.5
     assert abs(st["rel_total"] - 27 / 70) < 1e-12
+
+
+def test_var_backtest_counts_breaches_by_year_and_stock():
+    from mt.reports import var_backtest
+
+    rng = np.random.default_rng(4)
+    idx = pd.bdate_range("2009-01-01", "2013-12-31", name="date")
+    r = pd.DataFrame(rng.normal(0, 0.01, (len(idx), 3)), index=idx, columns=["A", "B", "C"])
+    res = var_backtest(r, start="2011-01-01")
+    assert res["flags"].index[0] >= pd.Timestamp("2011-01-01")
+    assert res["k"] == sum(k for k, _ in res["by_year"].values())
+    assert res["n"] == sum(n for _, n in res["by_year"].values())
+    assert res["k"] == sum(k for k, _ in res["per_stock"].values())
+    assert set(res["by_year"]) == {2011, 2012, 2013}
+    assert abs(res["k"] / res["n"] - 0.05) < 0.015

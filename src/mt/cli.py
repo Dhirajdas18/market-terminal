@@ -19,7 +19,14 @@ def now_ist() -> pd.Timestamp:
 
 
 def snapshot_from(table: pd.DataFrame) -> dict:
-    from mt import breadth, candles, overview, snapshot  # noqa: F401 - importing registers their sections
+    from mt import (  # noqa: F401 - importing registers their sections
+        breadth,
+        candles,
+        overview,
+        sectors,
+        snapshot,
+        stock,
+    )
 
     table = table.loc[table.index.max() - HISTORY :]
     return snapshot.build(table, now_ist())
@@ -49,8 +56,11 @@ def setup_logging(config_dir: Path = CONFIG_DIR) -> Path:
 
 def run_app() -> int:
     """Open on the cache at once and update it inside the app; with no cache, download first."""
+    from mt import watchlist
     from mt.app import TerminalApp
     from mt.data import error_label, load_cache
+
+    file = watchlist.WATCHLIST  # read now, so a test can point it elsewhere
 
     since = now_ist().tz_localize(None).normalize() - HISTORY
     try:
@@ -69,9 +79,11 @@ def run_app() -> int:
                 file=sys.stderr,
             )
             return 1
-        app = TerminalApp(snap, refresh)
+        app = TerminalApp(snap, refresh, watchlist_path=file)
     else:
-        app = TerminalApp(snapshot_from(table), refresh, update_on_mount=True)
+        app = TerminalApp(
+            snapshot_from(table), refresh, update_on_mount=True, watchlist_path=file
+        )
     app.run()
     return app.return_code or 0
 

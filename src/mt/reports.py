@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from mt import breadth, candles, plots, sectors
+from mt import breadth, candles, plots, sectors, stock
 from mt.data import (
     FIXES,
     NSE_TICKERS,
@@ -586,10 +586,128 @@ def report_sectors(out_dir: Path) -> dict:
     return out
 
 
+SCORED_FROM = "2012-01-01"
+
+
+def var_backtest(r: pd.DataFrame, start: str = SCORED_FROM) -> dict:
+    """Out-of-sample check of the app's 95% one-day VaR: each stock-day from `start` is scored
+    against the VaR of the 500 returns before it (the day itself is never in its window)."""
+    flags = stock.breaches(r).loc[start:]
+    n_day = flags.notna().sum(axis=1)
+    k_day = flags.sum(axis=1)
+    n, k = int(n_day.sum()), int(k_day.sum())
+    share = (k_day / n_day.where(n_day > 0)).dropna()  # one number per date: stocks breaching
+    by_year = {
+        int(y): (int(k_day[k_day.index.year == y].sum()), int(n_day[n_day.index.year == y].sum()))
+        for y in sorted(set(flags.index.year))
+    }
+    per_stock = {
+        c: (int(flags[c].sum()), int(flags[c].notna().sum()))
+        for c in flags
+        if flags[c].notna().any()
+    }
+    return {
+        "flags": flags, "n": n, "k": k, "share": share, "by_year": by_year, "per_stock": per_stock,
+        "k_day": k_day, "n_day": n_day,
+    }
+
+
+def _var_chart(res: dict, out_dir: Path) -> None:
+    years = list(res["by_year"])
+    rates = [res["by_year"][y][0] / res["by_year"][y][1] * 100 for y in years]
+    fig, ax = plt.subplots(figsize=(10, 4.6))
+    x = np.arange(len(years))
+    ax.bar(x, rates, 0.6, color=plots.SERIES[0])
+    for xi, rate in zip(x, rates, strict=True):
+        ax.text(xi, rate + 0.15, f"{rate:.1f}", ha="center", fontsize=9, color=plots.TEXT)
+    ax.axhline(5, color=plots.TEXT_2, linewidth=0.9, linestyle="--")
+    ax.set_xticks(x, [str(y)[2:] if y != years[0] else str(y) for y in years], fontsize=8)
+    ax.set_ylabel("stock-days over their VaR (%)")
+    ax.set_ylim(0, max(rates) * 1.18)
+    ax.grid(axis="x", visible=False)
+    ax.set_title(
+        f"Stock-days with a loss over their 95% VaR, by year; dashed line 5%\n"
+        f"{res['k']:,} of {res['n']:,} stock-days, {years[0]}–{years[-1]}, "
+        "VaR from the previous 500 returns"
+    )
+    plots.save(fig, out_dir, "stock_var_breaches")
+
+
+def report_stock(out_dir: Path) -> dict:
+    """The watchlist's one-day 95% VaR, out of sample: each day's VaR from the 500 returns before
+    it against that day's loss, all 50 stocks from 2012; the breach rate against 5%, a binomial
+    test, Kupiec's test, breaches by year, and a scan of the biggest breach days for bad prints."""
+    from scipy.stats import binomtest
+
+    table = _table()
+    close, r, _ = stock._prepare(table)
+    res = var_backtest(r)
+    k, n = res["k"], res["n"]
+    flags, share = res["flags"], res["share"]
+    test = binomtest(k, n, 0.05)
+    lo, hi = test.proportion_ci(0.95, method="exact")
+    lr, p_kupiec = stock.kupiec(k, n)
+    t_date = (share.mean() - 0.05) / (share.std(ddof=1) / np.sqrt(len(share)))
+    rates = {c: kk / nn for c, (kk, nn) in res["per_stock"].items()}
+    off = [c for c, (kk, nn) in res["per_stock"].items() if stock.kupiec(kk, nn)[1] < 0.05]
+    top_dates = res["k_day"].sort_values(ascending=False)
+    out: dict = {
+        "scored": f"{n:,} stock-days, {flags.index[0]:%Y-%m-%d} to {flags.index[-1]:%Y-%m-%d}, "
+        f"{len(res['per_stock'])} stocks, {int((res['n_day'] > 0).sum()):,} dates",
+        "breaches": f"{k:,} ({_pct(k / n, 2)}); target 5%",
+        "binomial test (stock-days independent)": f"p {test.pvalue:.3g}; 95% interval "
+        f"{_pct(lo, 2)} to {_pct(hi, 2)}",
+        "Kupiec test (stock-days independent)": f"LR {lr:.1f}, p {p_kupiec:.3g}",
+        "by date (share of stocks breaching)": f"mean {_pct(share.mean(), 2)}, "
+        f"t against 5% {t_date:.2f} over {len(share):,} dates",
+        "per-stock breach rate (min / median / max)": (
+            f"{min(rates, key=rates.get)} {_pct(min(rates.values()), 1)}",
+            _pct(float(np.median(list(rates.values()))), 1),
+            f"{max(rates, key=rates.get)} {_pct(max(rates.values()), 1)}",
+        ),
+        "stocks whose own Kupiec p is below 0.05": f"{len(off)} of {len(rates)} "
+        f"(about {0.05 * len(rates):.1f} expected if all were on target): "
+        f"{', '.join(off) or 'none'}",
+        "by year": "; ".join(
+            f"{y} {kk}/{nn} {_pct(kk / nn, 1)}" for y, (kk, nn) in res["by_year"].items()
+        ),
+        "dates with the most breaches": "; ".join(
+            f"{d:%Y-%m-%d} {int(c)} of {int(res['n_day'][d])}" for d, c in top_dates.head(5).items()
+        ),
+        "share of breaches on the 20 dates with the most": _pct(
+            float(top_dates.head(20).sum() / k), 1
+        ),
+    }
+    # bad-print scan: the 10 biggest breach losses, against NIFTY, the next day and the fixes
+    px = sessions(table["close"])
+    nifty = table["adj_close"]["NIFTY"].reindex(px.index).pct_change(fill_method=None)
+    fixes = pd.read_csv(FIXES, parse_dates=["date"])
+    listed = {(row.symbol, row.date) for row in fixes.itertuples()}
+    worst = (r.where(flags.reindex(r.index) == 1.0).stack().sort_values().head(10))
+    rows = []
+    for (day, sym), ret in worst.items():
+        nxt = r[sym].shift(-1).get(day)
+        rows.append(
+            f"{sym} {day:%Y-%m-%d} {_pct(ret, 1, True)} (NIFTY {_pct(nifty.get(day), 1, True)}, "
+            f"next day {_pct(nxt, 1, True)}{', in fixes file' if (sym, day) in listed else ''})"
+        )
+    out["10 biggest breach days"] = "; ".join(rows)
+    reversals = [
+        f"{sym} {day:%Y-%m-%d}"
+        for (day, sym), ret in worst.items()
+        if (nxt := r[sym].shift(-1).get(day)) is not None and nxt > -ret * 0.5
+    ]
+    out["of those, next-day rebound of half the loss or more"] = ", ".join(reversals) or "none"
+    out["sample"] = "today's 50 members applied to past years: survivorship-biased"
+    _var_chart(res, out_dir)
+    return out
+
+
 REPORTS = {
     "data": report_data,
     "overview": report_overview,
     "candles": report_candles,
     "breadth": report_breadth,
     "sectors": report_sectors,
+    "stock": report_stock,
 }

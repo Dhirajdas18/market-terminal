@@ -45,5 +45,21 @@ Sleep 1500ms
 Screenshot docs/img/screen-sectors.png
 Sleep 500ms
 
+Right
+Sleep 1500ms
+Screenshot docs/img/screen-watchlist.png
+Sleep 500ms
+
+Down
+Sleep 300ms
+Down
+Sleep 300ms
+Enter
+Sleep 2s
+Screenshot docs/img/screen-stock.png
+Sleep 500ms
+
+Escape
+Sleep 500ms
 Type "q"
 Sleep 500ms

@@ -24,6 +24,9 @@ the app on that file with no network and refresh off.
   each with the number of stocks it could be computed for, and a one-year line of the 50-day share
 - [x] Sectors tab: a heatmap of the 15 sectors' average day return with the number of stocks in each, and
   the 10 stocks that moved NIFTY most in index points, from weights estimated over the previous 60 sessions
+- [x] Watchlist tab and stock view: a saved list of NIFTY 50 stocks with close, day, 1-month and 1-year change,
+  volatility and beta; Enter on any stock (Movers, Sectors, Watchlist) opens candles with the 20- and 50-day
+  averages, beta, volatility, max drawdown and the one-day loss on ₹1,00,000 at 95%
 
 ## Usage
 
@@ -35,6 +38,7 @@ uv run mt report overview  # the S&P 500 check below
 uv run mt report candles   # gaps and unusual volume below
 uv run mt report breadth   # the out-of-sample check below
 uv run mt report sectors   # the tracking test below
+uv run mt report stock     # the VaR check below
 uv run pytest
 ```
 
@@ -44,6 +48,9 @@ new data is in, or "Refresh failed: <error type>" with the cached data still on 
 `~/.config/market-terminal/mt.log`.
 
 Keys: `r` refresh (runs in the background; the screen keeps the current data if it fails), `q` quit.
+`←`/`→` switch tabs; `↓` (or Tab) moves into a tab's stock table, Enter opens the highlighted stock and Escape
+returns. On the Watchlist tab `a` picks a stock to add and `d` removes the highlighted one. The watchlist is
+`~/.config/market-terminal/watchlist.json` (a JSON list of NIFTY 50 symbols; anything else in it is ignored).
 The header always states which day is shown, e.g. "Data for Mon 23 Nov 2026", names any stock
 whose bar for a newer day has not arrived, and lists stocks with no bar for 3 or more sessions as
 suspended.
@@ -113,6 +120,23 @@ estimates with NIFTY's actual move; finding 5 measures how far apart the two are
 
 The screenshot is synthetic demo data: its 10 listed stocks add +68.1 points, the other 38 stocks with a
 weight add +16.2, and the two make the +84 shown.
+
+## Watchlist tab and stock view
+
+<a href="docs/img/screen-watchlist.png"><img src="docs/img/screen-watchlist.png" alt="The Watchlist tab: a table of four stocks with close, day, 1-month and 1-year change, volatility and beta; HDFCBANK is highlighted, and JIOFIN shows dashes for 1 year, volatility and beta" width="100%"></a>
+
+<a href="docs/img/screen-stock.png"><img src="docs/img/screen-stock.png" alt="The stock view for RELIANCE: close 1,400.00, day −2.41%, 1 month −4.62%, 1 year +2.93%; beta 0.97, volatility 16.3%, max drawdown −10.2%, bad-day loss ₹1,612 on ₹1,00,000; below, candles for the last 115 sessions with the 20- and 50-day averages" width="100%"></a>
+
+Both screenshots are synthetic demo data (the demo watchlist lives in memory; `mt --demo` never touches
+`~/.config/market-terminal/watchlist.json`). Day, 1-month (21 sessions) and 1-year (250 sessions) changes
+compound the daily returns of adjusted closes, with the known Yahoo errors repaired. Beta is 0.67 × the slope of the
+stock's daily returns on NIFTY's plus 0.33, over the last 250 returns both have. Volatility is the standard
+deviation of the last 250 returns scaled by the number of returns per calendar year over that span, not by
+252. Max drawdown is the worst fall from a peak in the last 250 closes. The bad-day loss is the 5th percentile
+of the last 500 daily returns, as rupees on ₹1,00,000: a historical one-day 95% value at risk. A stock without
+enough history for a measure (250 returns; 250 of the last 500 for the loss) shows a dash and "not enough
+history" (JIOFIN in the screenshot). The stock view is built when a row is opened, not at launch; the snapshot
+holds each stock's last 250 sessions of candles (about 0.8 MB of JSON for the 50, 0.1 s to build).
 
 ## Findings
 
@@ -241,6 +265,36 @@ for that day or the next.
 - **Sample:** the 50 are today's members applied to past years (survivorship-biased);
   `mt report sectors` prints every number above.
 
+### 6. Scored out of sample from 2012, 5.04% of 169,482 stock-days lost more than the 95% one-day VaR from the previous 500 returns (target 5%); by year the share runs from 1.9% (2023) to 8.2% (2020)
+
+<a href="docs/img/stock_var_breaches.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/stock_var_breaches.png"><img src="docs/img/stock_var_breaches.gif" alt="Bars per year from 2012 to 2026 of the share of stock-days with a loss bigger than the 95 percent value at risk, from 1.9 percent in 2023 to 8.2 percent in 2020, with a dashed line at 5 percent" width="720"></picture></a>
+
+- **Test:** for each of the 50 stocks and each session from 2 Jan 2012 to 23 Nov 2026, the VaR is the 5th
+  percentile of the previous 500 returns (at least 250; the day itself is never in its window); a breach is
+  a return below minus that VaR. 169,482 stock-days on 3,673 dates, 43 to 50 stocks a date (median 47).
+- **Breach rate:** 8,545 breaches, 5.04%. Binomial test against 5%: p 0.43, 95% interval 4.94% to 5.15%;
+  Kupiec's test: likelihood ratio 0.6, p 0.43. Both treat the 50 stocks of a date as independent.
+- **By date:** the share of stocks breaching on a date averages 5.04%; its t against 5% over the 3,673
+  dates is 0.25 (one number per date, so same-day clustering across stocks does not count as extra evidence).
+- **Clustering:** the five dates with the most breaches are 12 Mar 2020 (46 of 47 stocks), 23 Mar 2020
+  (46 of 47), 16 Mar 2020 (43 of 47), 24 Feb 2022 (42 of 48) and 24 Aug 2015 (40 of 43); the 20 dates with
+  the most breaches hold 8.2% of all breaches.
+- **By year:** 2012 3.6%, 2013 5.6%, 2014 4.5%, 2015 5.8%, 2016 5.2%, 2017 2.6%, 2018 7.5%, 2019 5.5%,
+  2020 8.2%, 2021 3.0%, 2022 4.7%, 2023 1.9%, 2024 6.3%, 2025 4.7%, 2026 6.5% (to 23 Nov).
+- **By stock:** own breach rates run from 3.1% (Eternal) to 5.9% (BSE), median 5.0%; 1 of 50 stocks has a
+  Kupiec p below 0.05 (Eternal), against about 2.5 expected if all were on target.
+- **Bad-print scan before these numbers:** the 10 biggest breach losses are Adani Enterprises on 1 Feb
+  2023 (−28.2%), 2 Feb 2023 (−26.7%), 21 Nov 2024 (−22.6%) and 26 Apr 2017 (−20.9%); Axis Bank (−27.9%),
+  Bajaj Finserv (−25.9%), Bajaj Finance (−23.2%) and Shriram Finance (−22.2%) on 23 Mar 2020 (NIFTY −13.0%);
+  Infosys on 12 Apr 2013 (−21.3%); and Adani Ports on 4 Jun 2024 (−21.1%, NIFTY −5.9%). Nine are among the 12
+  moves checked in finding 1. The tenth, Adani Enterprises on 21 Nov 2024, has no Yahoo bar for 19 Nov, and its
+  −22.6% return spans two sessions; [Fortune](https://fortune.com/asia/2024/11/21/gautam-adani-group-shares-plunge-us-indictment-bribery/)
+  and [Bloomberg](https://www.bloomberg.com/news/articles/2024-11-21/adani-bonds-tumble-after-founder-charged-by-us-authorities)
+  report the fall on 21 Nov 2024. None is in `docs/data/yahoo_fixes.csv` and none rebounded by half the loss
+  the next day, so none was changed.
+- **Sample:** the 50 are today's members applied to past years (survivorship-biased);
+  `mt report stock` prints every number above.
+
 ## Design
 
 - `src/mt/data.py`: tickers, Yahoo download with retries (`DownloadFailed` names any missing ticker and
@@ -254,6 +308,9 @@ for that day or the next.
   denominators, the 50-day share per session, and the out-of-sample check.
 - `src/mt/sectors.py`: sector returns, the non-negative weight estimate, contributions in index points
   and the rolling out-of-sample tracking test.
+- `src/mt/stock.py`: Blume beta, calendar-time volatility, drawdown, historical VaR, the per-stock row and
+  candles in the snapshot, and the rolling VaR breach test.
+- `src/mt/watchlist.py`: the watchlist file: validated on load, atomic and owner-only on save.
 - `src/mt/snapshot.py`: one plain dict that every screen reads; schema in [docs/snapshot.md](docs/snapshot.md).
 - `src/mt/app.py`, `widgets.py`, `app.tcss`: the Textual app; colours from the chart tokens in `plots.py`.
 - `src/mt/reports.py`: README findings, reproducible with `mt report <topic>`.

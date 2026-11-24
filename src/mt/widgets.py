@@ -5,9 +5,13 @@ from collections.abc import Callable
 import pandas as pd
 from rich.text import Text
 from textual import events
+from textual.binding import Binding
 from textual.containers import Grid, Horizontal, Vertical
+from textual.screen import ModalScreen, Screen
 from textual.widget import Widget
-from textual.widgets import DataTable, Static
+from textual.widgets import DataTable, Footer, OptionList, Static
+from textual.widgets._data_table import DuplicateKey
+from textual.widgets.option_list import Option
 from textual_plotext import PlotextPlot
 
 TABS: list[tuple[str, Callable[[dict], Widget]]] = []
@@ -135,7 +139,8 @@ def y_ticks(lo: float, hi: float, count: int = 5) -> tuple[list[float], list[str
     """Round y-axis positions and their labels ('24,500'), instead of plotext's long decimals."""
     step = (hi - lo) / (count - 1)
     pos = [lo + step * i for i in range(count)]
-    return pos, [f"{v:,.0f}" for v in pos]
+    digits = 0 if hi - lo >= 20 else 2  # a narrow range (a low-priced stock) needs decimals
+    return pos, [f"{v:,.{digits}f}" for v in pos]
 
 
 def _tail(values: list, n: int) -> list:
@@ -147,8 +152,9 @@ def _short(date: str) -> str:
     return f"{day.day} {day:%b %y}"
 
 
-def draw_candles(plot: TokenPlot, idx: dict, n: int, span: str) -> None:
-    """NIFTY candles with the 20- and 50-day averages for the last `n` sessions."""
+def draw_candles(plot: TokenPlot, idx: dict, n: int, span: str, name: str = "NIFTY 50") -> None:
+    """Candles with the 20- and 50-day averages for the last `n` sessions (NIFTY on the Chart tab,
+    one stock in the stock view)."""
     plt = plot.plt
     plt.clear_figure()
     dates = _tail(idx["dates"], n)
@@ -174,7 +180,7 @@ def draw_candles(plot: TokenPlot, idx: dict, n: int, span: str) -> None:
     plt.xticks(pos, [_short(dates[i]) for i in pos])
     plt.yticks(*y_ticks(min(data["Low"]), max(data["High"])))
     plt.grid(False, False)
-    plt.title(f"NIFTY 50 · {span}, with 20- and 50-day average")
+    plt.title(f"{name} · {span}, with 20- and 50-day average")
     plot.refresh()
 
 
@@ -241,11 +247,42 @@ def chart_tab(snap: dict) -> Widget:
     return ChartPanel(idx)
 
 
+class SymbolTable(DataTable):
+    """A table whose rows are stocks: the cursor moves by row and Enter opens the stock view (the
+    row key is the symbol). The cursor shows only while the table has focus, so it does not paint
+    over the bars and colours of a table nobody is using; the watchlist keeps it, because `d`
+    removes the highlighted row."""
+
+    def __init__(self, ident: str, keep_cursor: bool = False):
+        super().__init__(cursor_type="row", zebra_stripes=False, id=ident, classes="symbols")
+        self._keep_cursor = keep_cursor
+        self.show_cursor = keep_cursor
+
+    def on_focus(self, event: events.Focus) -> None:
+        self.show_cursor = True
+
+    def on_blur(self, event: events.Blur) -> None:
+        self.show_cursor = self._keep_cursor
+
+
+def symbol_table(ident: str, keep_cursor: bool = False) -> DataTable:
+    return SymbolTable(ident, keep_cursor)
+
+
+def add_symbol_row(table: DataTable, cells: list, symbol: str) -> None:
+    """Add a row keyed by its symbol (a repeated symbol, which only a hand-made snapshot has, gets
+    no key rather than an error)."""
+    try:
+        table.add_row(*cells, key=symbol)
+    except DuplicateKey:
+        table.add_row(*cells)
+
+
 def _mover_table(title: str, columns: list[str], rows: list[list[Text]], ident: str) -> Vertical:
-    table = DataTable(cursor_type="none", zebra_stripes=False, id=ident)
+    table = symbol_table(ident)
     table.add_columns(*columns)
     for row in rows:
-        table.add_row(*row)
+        add_symbol_row(table, row, row[0].plain)
     parts: list[Widget] = [Static(title, classes="subtitle"), table]
     if not rows:
         parts.append(Static("None.", classes="empty"))
@@ -419,7 +456,7 @@ def heat_table(rows: list[dict]) -> DataTable:
 
 
 def contribution_table(c: dict) -> DataTable:
-    table = DataTable(cursor_type="none", zebra_stripes=False, id="contributions")
+    table = symbol_table("contributions")
     table.add_columns("Stock", "Points", "Weight", "")
     top = c.get("top") or []
     biggest = max((abs(r["points"]) for r in top if r.get("points") is not None), default=0)
@@ -428,14 +465,16 @@ def contribution_table(c: dict) -> DataTable:
         cells = round(abs(p) / biggest * BAR_CELLS) if p is not None and biggest else 0
         bar = Text("█" * cells, style=UP if (p or 0) > 0 else DOWN)
         weight = "—" if w is None else f"{w * 100:.1f}%"
-        table.add_row(
-            _symbol(r["symbol"]),
-            Text(pts(p, 1), justify="right"),
-            Text(weight, justify="right"),
-            bar,
+        add_symbol_row(
+            table,
+            [_symbol(r["symbol"]), Text(pts(p, 1), justify="right"),
+             Text(weight, justify="right"), bar],
+            str(r["symbol"]),
         )
     for sym in c.get("not_estimated") or []:
-        table.add_row(_symbol(sym), Text("weight not estimated yet", style=MUTED), "", "")
+        add_symbol_row(
+            table, [_symbol(sym), Text("weight not estimated yet", style=MUTED), "", ""], sym
+        )
     return table
 
 
@@ -468,3 +507,203 @@ def sectors_tab(snap: dict) -> Widget:
 
 
 TABS.append(("Sectors", sectors_tab))
+
+
+def inr(value: float) -> str:
+    """Rupees with Indian digit grouping: '₹2,300', '₹1,00,000'."""
+    digits = f"{round(value):d}"
+    if len(digits) > 3:
+        head, tail = digits[:-3], digits[-3:]
+        groups = []
+        while len(head) > 2:
+            groups.insert(0, head[-2:])
+            head = head[:-2]
+        digits = ",".join([head, *groups, tail]) if head else ",".join([*groups, tail])
+    return "₹" + digits
+
+
+def plain_pct(value: float | None, digits: int = 1) -> str:
+    """'16.3%' or '−10.2%' (true minus sign), or an em dash."""
+    return "—" if value is None else f"{value * 100:.{digits}f}%".replace("-", "−")
+
+
+WATCH_COLUMNS = ["Stock", "Close", "Day", "1m", "1y", "Vol", "Beta"]
+
+
+def watch_cells(symbol: str, row: dict | None) -> list[Text]:
+    """One watchlist row; a stock the snapshot has no numbers for gets dashes."""
+    row = row or {}
+    return [
+        _symbol(symbol),
+        Text(num(row.get("close")), justify="right"),
+        _signed(row.get("day")),
+        _signed(row.get("m1")),
+        _signed(row.get("y1")),
+        Text(plain_pct(row.get("vol"))),
+        Text(num(row.get("beta"))),
+    ]
+
+
+class WatchlistPanel(Vertical):
+    """The watchlist as a table; `set_symbols` redraws it after an add or a remove."""
+
+    def __init__(self, stocks: dict, symbols: list[str]):
+        super().__init__(id="watchlist")
+        self._stocks = stocks
+        self._symbols = list(symbols)
+
+    def compose(self):
+        yield Static(
+            "Watchlist: Enter opens a stock · a adds one · d removes the highlighted row",
+            classes="subtitle",
+        )
+        table = symbol_table("watchlist-table", keep_cursor=True)
+        table.add_columns(*WATCH_COLUMNS)
+        yield table
+        yield Static("", id="watchlist-empty", classes="empty")
+
+    def on_mount(self) -> None:
+        self.set_symbols(self._symbols)
+
+    def set_symbols(self, symbols: list[str]) -> None:
+        self._symbols = list(symbols)
+        table = self.query_one("#watchlist-table", DataTable)
+        keep = table.cursor_row
+        table.clear()
+        for sym in self._symbols:
+            add_symbol_row(table, watch_cells(sym, self._stocks.get(sym)), sym)
+        if self._symbols:
+            table.move_cursor(row=min(keep, len(self._symbols) - 1))
+        empty = self.query_one("#watchlist-empty", Static)
+        empty.update("" if symbols else "Your watchlist is empty. Press a to add a NIFTY 50 stock.")
+        empty.display = not symbols
+
+    def highlighted(self) -> str | None:
+        """The symbol under the cursor, if any row exists."""
+        table = self.query_one("#watchlist-table", DataTable)
+        if not table.row_count:
+            return None
+        return table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
+
+
+def watchlist_tab(snap: dict) -> Widget:
+    return WatchlistPanel(snap.get("stocks") or {}, snap.get("watchlist") or [])
+
+
+TABS.append(("Watchlist", watchlist_tab))
+
+ENOUGH = "not enough history"
+
+
+def stock_lines(row: dict) -> Text:
+    """The numbers of the stock view as plain Text: each measure with what it is computed from;
+    a measure the stock has too little history for shows a dash and says so."""
+    text = Text()
+    text.append(f"Close {num(row.get('close'))}", style="bold")
+    for label, key in (("Day", "day"), ("1 month", "m1"), ("1 year", "y1")):
+        text.append(f"   {label} ")
+        text.append_text(_signed(row.get(key)))
+    rows = [
+        ("Beta vs NIFTY", num(row.get("beta")), "Blume-adjusted (0.67 × slope + 0.33), 250 days",
+         "250 days"),
+        ("Volatility", plain_pct(row.get("vol")), "a year, last 250 days, by calendar time",
+         "250 days"),
+        ("Max drawdown", plain_pct(row.get("mdd")), "worst fall from a peak, last 250 sessions",
+         "250 sessions"),
+        (
+            "Bad-day loss",
+            "—" if row.get("var95") is None else inr(row["var95"]),
+            "on ₹1,00,000: 95% one-day VaR from the last 500 days, one day in 20 is worse",
+            "250 days",
+        ),
+    ]
+    for label, value, note, need in rows:
+        text.append(f"\n{label:<14}", style=MUTED)
+        text.append(f"{value:>8}", style="bold")
+        text.append("  " + (f"{ENOUGH} (needs {need})" if value == "—" else note), style=MUTED)
+    return text
+
+
+class StockScreen(Screen):
+    """One stock: candles with the averages and its risk numbers. Built when a row is opened;
+    Escape returns."""
+
+    BINDINGS = [Binding("escape", "close", "Back")]
+
+    def __init__(self, symbol: str):
+        super().__init__()
+        self.symbol = symbol
+
+    def _data(self) -> dict | None:
+        return (self.app.snapshot.get("stocks") or {}).get(self.symbol)
+
+    def compose(self):
+        row = self._data()
+        title = Text(str(self.symbol), style="bold")
+        if row and row.get("sector"):
+            title.append(f"  ·  {row['sector']}", style=MUTED)
+        yield Static(title, id="stock-title")
+        if row is None:
+            yield Static(
+                Text(f"No data for {self.symbol} in this snapshot."), classes="empty"
+            )
+        else:
+            yield Static(stock_lines(row), id="stock-numbers")
+            if (row.get("candles") or {}).get("dates"):
+                yield TokenPlot(id="stock-candles")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.call_after_refresh(self._draw)
+
+    def on_resize(self, event: events.Resize) -> None:
+        self._draw()
+
+    def _draw(self) -> None:
+        row, plots = self._data(), self.query("#stock-candles")
+        if not row or not plots:
+            return
+        idx = row["candles"]
+        n = window_size(self.size.width, len(idx["dates"]), False)
+        draw_candles(plots.first(), idx, n, span_label(n, len(idx["dates"]), False), self.symbol)
+
+    def action_close(self) -> None:
+        self.app.close_stock()
+
+
+class PickStock(ModalScreen[str | None]):
+    """Choose one stock to add; Enter picks the highlighted one, Escape cancels."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, choices: list[tuple[str, str | None]]):
+        super().__init__()
+        self._choices = choices
+
+    def compose(self):
+        with Vertical(id="pick-box"):
+            yield Static("Add to watchlist", classes="subtitle")
+            if self._choices:
+                yield OptionList(
+                    *(
+                        Option(Text(f"{sym:<12}{sector or ''}"), id=sym)
+                        for sym, sector in self._choices
+                    ),
+                    id="pick-list",
+                )
+            else:
+                yield Static(
+                    "Every stock in this snapshot is already on the watchlist.", classes="empty"
+                )
+        yield Footer()
+
+    def on_mount(self) -> None:
+        for options in self.query(OptionList):
+            options.focus()
+            options.highlighted = 0
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        self.dismiss(event.option.id)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
