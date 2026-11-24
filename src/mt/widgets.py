@@ -651,11 +651,33 @@ class StockScreen(Screen):
     """One stock: candles with the averages and its risk numbers. Built when a row is opened;
     Escape returns."""
 
-    BINDINGS = [Binding("escape", "close", "Back")]
+    BINDINGS = [
+        Binding("escape", "close", "Back"),
+        Binding("y", "show_year", "1 year"),
+        Binding("y", "fit_width", "Fit width"),
+    ]
 
     def __init__(self, symbol: str):
         super().__init__()
         self.symbol = symbol
+        self.full = False  # the whole year, as on the Chart tab (`y`)
+        self.shown = 0
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action in ("show_year", "fit_width"):  # one key, two labels: only the one that applies
+            return bool(self.query("#stock-candles")) and self.full == (action == "fit_width")
+        return True
+
+    def _set_year(self, full: bool) -> None:
+        self.full = full
+        self._draw()
+        self.refresh_bindings()
+
+    def action_show_year(self) -> None:
+        self._set_year(True)
+
+    def action_fit_width(self) -> None:
+        self._set_year(False)
 
     def _data(self) -> dict | None:
         return (self.app.snapshot.get("stocks") or {}).get(self.symbol)
@@ -687,8 +709,11 @@ class StockScreen(Screen):
         if not row or not plots:
             return
         idx = row["candles"]
-        n = window_size(self.size.width, len(idx["dates"]), False)
-        draw_candles(plots.first(), idx, n, span_label(n, len(idx["dates"]), False), self.symbol)
+        n = window_size(self.size.width, len(idx["dates"]), self.full)
+        self.shown = n
+        draw_candles(
+            plots.first(), idx, n, span_label(n, len(idx["dates"]), self.full), self.symbol
+        )
 
     def action_close(self) -> None:
         self.app.close_stock()

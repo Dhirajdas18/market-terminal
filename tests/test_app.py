@@ -930,8 +930,8 @@ def test_tab_keys_do_nothing_while_the_stock_view_is_open():
             await pilot.pause()
             await pilot.press("down", "enter")
             await pilot.pause()
-            keys = {k for k in ("a", "d", "y", "down") if k in app.active_bindings}
-            await pilot.press("a", "d", "y")
+            keys = {k for k in ("a", "d", "down") if k in app.active_bindings}
+            await pilot.press("a", "d")
             await pilot.pause()
             return keys, len(app.screen_stack), app.watchlist
 
@@ -1207,3 +1207,59 @@ def test_keys_are_inert_in_the_sector_view():
     assert seen["screen"] == "SectorScreen" and seen["depth"] == 2
     assert seen["focus"] == "sector-stocks"  # up on the first row stays: no tab bar behind it
     assert seen["active"] == widgets_pane("Sectors")
+
+
+# y in the stock view: width-fitted candles <-> the whole year, like the Chart tab
+
+def _stock_y(*keys_after_open: str, tab: str = "Sectors", path=("down", "right", "enter")):
+    app = TerminalApp(SNAP, None)
+    out = {}
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, tab)
+            await pilot.pause()
+            await pilot.press(*path)
+            await pilot.pause()
+            await pilot.pause()
+            out["fit"] = (app.screen.shown, _y_entries(app), app.screen.query_one(
+                "#stock-candles").plt.build())
+            for key in keys_after_open:
+                await pilot.press(key)
+                await pilot.pause()
+                await pilot.pause()
+            out["after"] = (app.screen.shown, _y_entries(app), app.screen.query_one(
+                "#stock-candles").plt.build())
+            out["chart_full"] = app.query_one(widgets.ChartPanel).full
+
+    asyncio.run(run())
+    return out
+
+
+def test_y_in_the_stock_view_toggles_year_and_back_with_footer_labels():
+    out = _stock_y("y")
+    n_fit, labels_fit, title_fit = out["fit"]
+    assert n_fit < 250 and labels_fit == {"1 year"} and f"last {n_fit} sessions" in title_fit
+    n_year, labels_year, title_year = out["after"]
+    assert n_year == 250 and labels_year == {"Fit width"} and "1 year" in title_year
+    back = _stock_y("y", "y")["after"]
+    assert back[0] == n_fit and back[1] == {"1 year"}
+
+
+def test_y_in_the_stock_view_leaves_the_chart_tab_alone():
+    assert _stock_y("y")["chart_full"] is False
+
+
+def test_y_is_inert_in_the_sector_view_and_behind_it():
+    app = TerminalApp(SNAP, None)
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Sectors")
+            await pilot.pause()
+            await pilot.press("down", *["down"] * 11, "enter", "y")
+            await pilot.pause()
+            return type(app.screen).__name__, _y_entries(app), app.query_one(
+                widgets.ChartPanel).full
+
+    assert asyncio.run(run()) == ("SectorScreen", set(), False)

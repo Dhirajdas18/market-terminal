@@ -53,7 +53,7 @@ new data is in, or "Refresh failed: <error type>" with the cached data still on 
 `~/.config/market-terminal/mt.log`.
 
 Keys: `r` refresh (runs in the background; the screen keeps the current data if it fails), `q` quit.
-`←`/`→` switch tabs while the tab bar is focused, and `1`–`6` jump straight to a tab from anywhere. `↓` (or Tab) moves into the tab's first table and `↑` on its first row (or from a chart) goes back to the tab bar. Where tabs hold several tables side by side (Movers, Sectors) `←`/`→` move between them, keeping the row. Enter opens the highlighted stock (on Sectors, a sector: its stocks, each with its NIFTY contribution) and Escape goes back one screen. `y` on the Chart tab toggles between the width-fitted candles and the whole year.
+`←`/`→` switch tabs while the tab bar is focused, and `1`–`6` jump straight to a tab from anywhere. `↓` (or Tab) moves into the tab's first table and `↑` on its first row (or from a chart) goes back to the tab bar. Where tabs hold several tables side by side (Movers, Sectors) `←`/`→` move between them, keeping the row. Enter opens the highlighted stock (on Sectors, a sector: its stocks, each with its NIFTY contribution) and Escape goes back one screen. `y` on the Chart tab, and in a stock's view, toggles between the width-fitted candles and the whole year.
 On the Watchlist tab `a` picks a stock to add and `d` removes the highlighted one. The watchlist is
 `~/.config/market-terminal/watchlist.json` (a JSON list of NIFTY 50 symbols; anything else in it is ignored).
 The header always states which day is shown, e.g. "Data for Mon 23 Nov 2026", names any stock
