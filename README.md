@@ -167,20 +167,20 @@ for that day or the next.
 - **Sample:** the 50 are today's members applied to past years (survivorship-biased, see Design); the
   `mt report candles` output prints every number above.
 
-### 4. Scored on 2017 to 2026, the share of stocks above their 50-day average separates NIFTY's next-20-session return by +0.12% between high and low days (t 0.2); NIFTY's own position against its 50-day average separates it by +0.43% (t 0.7)
+### 4. Scored on 2017 to 2026, the share of stocks above their 50-day average separates NIFTY's next-20-bar return by +0.12% between high and low days (t 0.2); NIFTY's own position against its 50-day average separates it by +0.43% (t 0.7)
 
 <a href="docs/img/breadth_history.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/breadth_history.png"><img src="docs/img/breadth_history.gif" alt="Line of the share of today's NIFTY 50 stocks above their 50-day average from 2008 to 2026, with a dashed line at the 58% training median and a vertical line at 2017 where scoring starts" width="720"></picture></a>
 
-<a href="docs/img/breadth_returns.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/breadth_returns.png"><img src="docs/img/breadth_returns.gif" alt="Bars of the mean NIFTY return over the next 20 sessions after high and low days of the share above the 50-day average (+1.06% and +0.94%) and of NIFTY against its own 50-day average (+1.20% and +0.77%), with a dashed line at the all-days mean of 1.00%" width="720"></picture></a>
+<a href="docs/img/breadth_returns.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/breadth_returns.png"><img src="docs/img/breadth_returns.gif" alt="Bars of the mean NIFTY return over the next 20 NIFTY bars after high and low days of the share above the 50-day average (+1.06% and +0.94%) and of NIFTY against its own 50-day average (+1.20% and +0.77%), with a dashed line at the all-days mean of 1.00%" width="720"></picture></a>
 
 - **Question:** does the share of stocks above their 50-day average add anything to NIFTY's own
-  position against its 50-day average for NIFTY's return over the next 20 sessions? Each signal's
+  position against its 50-day average for NIFTY's return over the next 20 NIFTY bars? Each signal's
   threshold is its median over 2008 to 2016 (2,195 sessions): 58.1% of stocks for breadth, NIFTY 1.07%
   above its average for the baseline. Only sessions from 2 Jan 2017 are scored; the 2008 to 2016
   sessions fix the thresholds and nothing else.
 - **Scored sample:** 2,419 sessions from 2 Jan 2017 to 23 Oct 2026 (later sessions do not have 20
-  sessions ahead yet). Across all of them NIFTY rose over the next 20 sessions 63.5% of the time, a mean
-  of +1.00%. Standard errors are Newey-West with 19 lags (20-session returns overlap by 19 sessions).
+  NIFTY bars ahead yet). Across all of them NIFTY rose over the next 20 NIFTY bars 63.5% of the time, a mean
+  of +1.00%. Standard errors are Newey-West with 19 lags (20-bar returns overlap by 19 bars).
 - **Breadth above its training median:** 1,297 sessions, up 65.0%, mean +1.06% (t 3.2). At or below:
   1,122 sessions, up 61.7%, mean +0.94% (t 1.7). Difference +0.12% (t 0.2).
 - **NIFTY above its training-median distance from its 50-day average:** 1,305 sessions, up 67.7%, mean
@@ -190,8 +190,9 @@ for that day or the next.
 - **Both flags in one regression:** breadth −0.47% (t −0.8), NIFTY against its average +0.79% (t 1.2).
   The two flags give the same answer on 88% of sessions.
 - **Sample:** the 50 are today's NIFTY members applied to past years, so stocks that left the index
-  are missing: survivorship-biased, and the numbers above are an upper bound. The count of stocks in the 50-day share grows from 38 on 2 Jan 2008 to 50;
-  `mt report breadth` prints every number above.
+  are missing: survivorship-biased; read the numbers as an upper bound.
+- **Stock count:** the 50-day share is computed over 38 stocks on 2 Jan 2008, growing to 50.
+- `mt report breadth` prints every number above.
 
 ## Design
 
