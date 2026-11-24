@@ -180,7 +180,7 @@ for that day or the next.
   sessions fix the thresholds and nothing else.
 - **Scored sample:** 2,419 sessions from 2 Jan 2017 to 23 Oct 2026 (later sessions do not have 20
   sessions ahead yet). Across all of them NIFTY rose over the next 20 sessions 63.5% of the time, a mean
-  of +1.00%. Standard errors are Newey-West with 19 lags, as 20-session returns overlap by 19.
+  of +1.00%. Standard errors are Newey-West with 19 lags (20-session returns overlap by 19 sessions).
 - **Breadth above its training median:** 1,297 sessions, up 65.0%, mean +1.06% (t 3.2). At or below:
   1,122 sessions, up 61.7%, mean +0.94% (t 1.7). Difference +0.12% (t 0.2).
 - **NIFTY above its training-median distance from its 50-day average:** 1,305 sessions, up 67.7%, mean
