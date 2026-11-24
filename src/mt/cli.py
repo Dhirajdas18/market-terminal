@@ -1,12 +1,15 @@
 """Command line: `mt` opens the terminal app; `mt report <topic>` builds a topic's README charts."""
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
 import pandas as pd
 
 OUT = Path("out")
+CONFIG_DIR = Path.home() / ".config" / "market-terminal"
+log = logging.getLogger("mt.cli")
 HISTORY = pd.DateOffset(years=3, days=10)  # the screens need at most ~3 years of bars
 
 
@@ -28,23 +31,46 @@ def refresh() -> dict:
     return snapshot_from(update_cache())
 
 
-def run_app() -> int:
-    from mt.app import TerminalApp
-    from mt.data import DownloadFailed, load_cache
+def setup_logging(config_dir: Path = CONFIG_DIR) -> Path:
+    """Send the package's log to a private file (never to the screen while the app runs)."""
+    config_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    config_dir.chmod(0o700)
+    path = config_dir / "mt.log"
+    path.touch(mode=0o600, exist_ok=True)
+    path.chmod(0o600)
+    handler = logging.FileHandler(path, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logger = logging.getLogger("mt")
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    return path
 
-    notice = None
+
+def run_app() -> int:
+    """Open on the cache at once and update it inside the app; with no cache, download first."""
+    from mt.app import TerminalApp
+    from mt.data import error_label, load_cache
+
+    since = now_ist().tz_localize(None).normalize() - HISTORY
     try:
-        snap = refresh()
-    except (DownloadFailed, OSError) as exc:
-        table = load_cache(since=now_ist().tz_localize(None).normalize() - HISTORY)
-        if table is None or table.empty:
-            print(f"No cached prices and the download failed: {exc}", file=sys.stderr)
+        table = load_cache(since=since)
+    except Exception as exc:  # unreadable cache: treat as none, the download rewrites it
+        log.warning("cache unreadable: %s: %s", type(exc).__name__, exc)
+        table = None
+    if table is None or table.empty:
+        try:
+            snap = refresh()
+        except Exception as exc:
+            log.warning("first download failed: %s: %s", type(exc).__name__, exc)
+            print(
+                f"No cached prices and the download failed: {error_label(exc)}. "
+                "Check the connection and run `uv run mt` again.",
+                file=sys.stderr,
+            )
             return 1
-        notice = f"Refresh failed: {exc}. Showing cached data."
-        snap = snapshot_from(table)
-    if notice:
-        snap["notice"] = notice
-    app = TerminalApp(snap, refresh)
+        app = TerminalApp(snap, refresh)
+    else:
+        app = TerminalApp(snapshot_from(table), refresh, update_on_mount=True)
     app.run()
     return app.return_code or 0
 
@@ -56,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     rep.add_argument("topic")
     args = parser.parse_args(argv)
     if args.cmd is None:
+        setup_logging()
         return run_app()
 
     from mt import plots, reports

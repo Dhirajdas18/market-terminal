@@ -64,6 +64,13 @@ class DownloadFailed(Exception):
         self.missing = missing
 
 
+def error_label(exc: BaseException) -> str:
+    """Short, safe text for the header: the exception type, plus the tickers for DownloadFailed."""
+    if isinstance(exc, DownloadFailed):
+        return f"DownloadFailed ({', '.join(exc.missing)})"
+    return type(exc).__name__
+
+
 def fetch(start: str, end: str | None = None) -> pd.DataFrame:
     """Download every ticker from `start` (inclusive) to `end` (exclusive, default: today)."""
     import yfinance as yf

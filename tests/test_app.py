@@ -1,10 +1,12 @@
 import asyncio
 import json
+import threading
 from pathlib import Path
 
 from textual.widgets import Static
 
 from mt.app import TerminalApp
+from mt.data import DownloadFailed
 
 SNAP = json.loads((Path(__file__).parent / "fixtures" / "snapshot.json").read_text())
 
@@ -30,9 +32,9 @@ def test_q_quits():
     assert app.return_code == 0
 
 
-def test_refresh_failure_sets_notice():
+def test_refresh_failure_sets_notice(caplog):
     def refresh():
-        raise RuntimeError("Yahoo [bold]offline")
+        raise ValueError("Yahoo [bold]offline")
 
     app = TerminalApp(SNAP, refresh)
 
@@ -44,8 +46,50 @@ def test_refresh_failure_sets_notice():
             return _masthead(app)
 
     text = asyncio.run(run())
-    assert "Refresh failed: Yahoo [bold]offline" in text  # shown as plain text, not markup
+    assert "Refresh failed: ValueError" in text and "[bold]" not in text
     assert "Data for Mon 23 Nov 2026" in text  # old data still on screen
+    assert "ValueError: Yahoo [bold]offline" in caplog.text
+
+
+def test_launch_shows_cache_first_then_the_update():
+    release = threading.Event()
+    new = {**SNAP, "as_of": "2026-11-24", "as_of_label": "Data for Tue 24 Nov 2026",
+           "missing": [], "stale": False}
+
+    def slow_refresh():
+        release.wait(5)
+        return new
+
+    app = TerminalApp(SNAP, slow_refresh, update_on_mount=True)
+
+    async def run():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            first = _masthead(app)
+            release.set()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            return first, _masthead(app)
+
+    first, after = asyncio.run(run())
+    assert "Data for Mon 23 Nov 2026" in first and "Updating…" in first
+    assert "Data for Tue 24 Nov 2026" in after and "Updating…" not in after
+
+
+def test_launch_update_failure_keeps_cache_and_names_the_error():
+    def refresh():
+        raise DownloadFailed(["TCS"])
+
+    app = TerminalApp(SNAP, refresh, update_on_mount=True)
+
+    async def run():
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            return _masthead(app)
+
+    text = asyncio.run(run())
+    assert "Data for Mon 23 Nov 2026" in text and "Refresh failed: DownloadFailed (TCS)" in text
 
 
 def test_refresh_success_replaces_snapshot():
@@ -62,3 +106,13 @@ def test_refresh_success_replaces_snapshot():
 
     text = asyncio.run(run())
     assert "Data for Tue 24 Nov 2026" in text and "INFY" not in text
+
+
+def test_header_lists_suspended_stocks():
+    app = TerminalApp({**SNAP, "suspended": [{"symbol": "YESBANK", "last": "2026-11-10"}]}, None)
+
+    async def run():
+        async with app.run_test():
+            return _masthead(app)
+
+    assert "suspended: YESBANK (last 2026-11-10)" in asyncio.run(run())
