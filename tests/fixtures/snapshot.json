@@ -2819,7 +2819,59 @@
       "JIOFIN"
     ],
     "sum_points": 84.3,
-    "actual_points": 91.4
+    "actual_points": 91.4,
+    "all": [
+      {
+        "symbol": "RELIANCE",
+        "points": -52.29,
+        "weight": 0.0904
+      },
+      {
+        "symbol": "HDFCBANK",
+        "points": 38.1,
+        "weight": 0.1312
+      },
+      {
+        "symbol": "ICICIBANK",
+        "points": 30.19,
+        "weight": 0.0871
+      },
+      {
+        "symbol": "LT",
+        "points": 28.98,
+        "weight": 0.0398
+      },
+      {
+        "symbol": "TATASTEEL",
+        "points": 25.31,
+        "weight": 0.0212
+      },
+      {
+        "symbol": "SBIN",
+        "points": 15.2,
+        "weight": 0.0301
+      },
+      {
+        "symbol": "MARUTI",
+        "points": -10.74,
+        "weight": 0.0211
+      },
+      {
+        "symbol": "ITC",
+        "points": -6.36,
+        "weight": 0.0344
+      },
+      {
+        "symbol": "BHARTIARTL",
+        "points": -5.04,
+        "weight": 0.0412
+      },
+      {
+        "symbol": "NTPC",
+        "points": 4.73,
+        "weight": 0.0176
+      }
+    ]
   },
   "stocks": {
     "BHARTIARTL": {

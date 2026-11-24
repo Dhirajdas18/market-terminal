@@ -128,8 +128,10 @@ def test_section_has_sectors_and_contributions_and_serialises(monkeypatch):
     assert {s["name"] for s in snap["sectors"]} == {"Banks", "IT"}
     assert all(set(s) == {"name", "ret", "n"} for s in snap["sectors"])
     c = snap["contributions"]
-    assert set(c) == {"top", "not_estimated", "sum_points", "actual_points"}
+    assert set(c) == {"top", "all", "not_estimated", "sum_points", "actual_points"}
     assert c["not_estimated"] == ["NEWCO"]
+    assert {a["symbol"] for a in c["all"]} == {"AAAA", "BBBB", "CCCC"}
+    assert c["sum_points"] == pytest.approx(sum(a["points"] for a in c["all"]))
     assert {t["symbol"] for t in c["top"]} == {"AAAA", "BBBB", "CCCC"}
     assert c["sum_points"] == pytest.approx(c["actual_points"], rel=1e-3, abs=1.0)
 

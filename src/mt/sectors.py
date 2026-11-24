@@ -147,12 +147,14 @@ def contributions_section(table: pd.DataFrame) -> dict:
     table_ = contributions(weights.reindex(names), today, prev)
     table_ = table_[today.reindex(table_.index).notna()]
     check = daily_check(table_, float(close[INDEX].iloc[-1]), prev)
-    ranked = table_[~table_["not_estimated"]].head(TOP)
+    estimated = table_[~table_["not_estimated"]]
+    rows = [
+        {"symbol": s, "points": row.points, "weight": row.weight}
+        for s, row in estimated.iterrows()
+    ]
     return {
-        "top": [
-            {"symbol": s, "points": row.points, "weight": row.weight}
-            for s, row in ranked.iterrows()
-        ],
+        "top": rows[:TOP],
+        "all": rows,  # every stock with a weight, for the sector view
         "not_estimated": sorted(table_.index[table_["not_estimated"]]),
         **check,
     }

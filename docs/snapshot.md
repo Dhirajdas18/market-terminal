@@ -102,6 +102,7 @@ stocks with a bar on `as_of`, `n` the number of stocks in that mean. A sector wi
 | key | type | meaning |
 |---|---|---|
 | `top` | list of `{"symbol", "points", "weight"}` | the 10 stocks with the largest \|points\|: weight x day return x NIFTY's previous close; `weight` (0 to 1) is estimated by non-negative least squares on the 60 sessions before `as_of` (`as_of` itself not used) |
+| `all` | list of `{"symbol", "points", "weight"}` | the same for every stock with a weight, in the same order (`top` is its first 10); the sector view reads it |
 | `not_estimated` | list of symbols | stocks with a bar today but fewer than 60 valid returns in that span: no weight, no points |
 | `sum_points` | float | sum of the points of all stocks with a weight |
 | `actual_points` | float | NIFTY's close minus its previous close |
