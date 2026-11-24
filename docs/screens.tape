@@ -1,7 +1,7 @@
 # Regenerates every README screenshot from the synthetic demo snapshot: `vhs docs/screens.tape`
 # (needs vhs, ttyd, ffmpeg). Add one Screenshot line per new tab.
-# vhs needs an output file; the GIF is not used
-Output "/tmp/mt-screens.gif"
+# vhs needs an output file; the GIF is not used (out/ is git-ignored)
+Output "out/mt-screens.gif"
 
 Set Shell "bash"
 Set FontSize 22
