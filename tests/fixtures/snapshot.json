@@ -2683,5 +2683,142 @@
         0.6383
       ]
     }
+  },
+  "sectors": [
+    {
+      "name": "Information Technology",
+      "ret": 0.0187,
+      "n": 2
+    },
+    {
+      "name": "Metals & Mining",
+      "ret": 0.0121,
+      "n": 4
+    },
+    {
+      "name": "Capital Goods",
+      "ret": 0.0094,
+      "n": 1
+    },
+    {
+      "name": "Power",
+      "ret": 0.0062,
+      "n": 2
+    },
+    {
+      "name": "Construction",
+      "ret": 0.0031,
+      "n": 1
+    },
+    {
+      "name": "Consumer Durables",
+      "ret": 0.0008,
+      "n": 2
+    },
+    {
+      "name": "Healthcare",
+      "ret": -0.0012,
+      "n": 5
+    },
+    {
+      "name": "Construction Materials",
+      "ret": -0.0034,
+      "n": 2
+    },
+    {
+      "name": "Telecommunication",
+      "ret": -0.0051,
+      "n": 1
+    },
+    {
+      "name": "Fast Moving Consumer Goods",
+      "ret": -0.0077,
+      "n": 4
+    },
+    {
+      "name": "Services",
+      "ret": -0.0103,
+      "n": 2
+    },
+    {
+      "name": "Financial Services",
+      "ret": -0.0129,
+      "n": 12
+    },
+    {
+      "name": "Consumer Services",
+      "ret": -0.0158,
+      "n": 2
+    },
+    {
+      "name": "Automobile and Auto Components",
+      "ret": -0.0186,
+      "n": 5
+    },
+    {
+      "name": "Oil Gas & Consumable Fuels",
+      "ret": -0.0241,
+      "n": 3
+    }
+  ],
+  "contributions": {
+    "top": [
+      {
+        "symbol": "RELIANCE",
+        "points": -52.29,
+        "weight": 0.0904
+      },
+      {
+        "symbol": "HDFCBANK",
+        "points": 38.1,
+        "weight": 0.1312
+      },
+      {
+        "symbol": "ICICIBANK",
+        "points": 18.19,
+        "weight": 0.0871
+      },
+      {
+        "symbol": "TATASTEEL",
+        "points": 15.31,
+        "weight": 0.0212
+      },
+      {
+        "symbol": "MARUTI",
+        "points": -10.74,
+        "weight": 0.0211
+      },
+      {
+        "symbol": "LT",
+        "points": 8.98,
+        "weight": 0.0398
+      },
+      {
+        "symbol": "ITC",
+        "points": -6.36,
+        "weight": 0.0344
+      },
+      {
+        "symbol": "SBIN",
+        "points": -5.2,
+        "weight": 0.0301
+      },
+      {
+        "symbol": "BHARTIARTL",
+        "points": -5.04,
+        "weight": 0.0412
+      },
+      {
+        "symbol": "NTPC",
+        "points": 4.73,
+        "weight": 0.0176
+      }
+    ],
+    "not_estimated": [
+      "COALINDIA",
+      "JIOFIN"
+    ],
+    "sum_points": 84.3,
+    "actual_points": 91.4
   }
 }

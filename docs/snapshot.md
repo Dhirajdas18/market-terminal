@@ -21,6 +21,7 @@ Session rules (`mt.session.session_date`):
 - USD/INR and the S&P 500 are on other calendars and never decide the session.
 - Before 16:00 IST today's bar is dropped (unfinished).
 - An all-NaN row (Yahoo on an NSE holiday) counts for nothing; the last complete day is shown.
+- A row counts as an NSE session only if at least half as many NSE series have a close as on the busiest day (`mt.session.sessions`): Yahoo's one-ticker stray rows on a Saturday are not sessions for the session date, the sessions-behind count or any section.
 - A stock listed recently counts from its first bar; it does not hold the session back.
 - A stock 1–2 sessions behind is a late bar: the session falls back and the stock is in `missing`.
   At 3 or more sessions behind it is `suspended` and ignored. Sessions are dates on which any NSE
@@ -86,3 +87,20 @@ are dropped before any window. Closes have the `start` and `blank` rows of `docs
 | `highs`, `lows` | int | stocks whose close is at or above (at or below) the previous 249 closes |
 | `of52` | int | stocks with 250 closes and a bar today: the denominator of `highs` and `lows` |
 | `spark` | `{"dates", "pct"}` | the last 250 sessions; `pct` is the share (0 to 1) of stocks above their 50-day average that day, `null` until a stock has 50 closes |
+
+### `sectors`
+
+List of `{"name", "ret", "n"}`, best sector first (`mt.sectors.sectors_section`): `ret` is the equal-weight
+mean day return (price return from `close`, `zero` fixes of `docs/data/yahoo_fixes.csv` applied) of the sector's
+stocks with a bar on `as_of`, `n` the number of stocks in that mean. A sector with no stock return is left out.
+
+### `contributions`
+
+`{}` if NIFTY has no close on `as_of` and the session before (`mt.sectors.contributions_section`).
+
+| key | type | meaning |
+|---|---|---|
+| `top` | list of `{"symbol", "points", "weight"}` | the 10 stocks with the largest \|points\|: weight x day return x NIFTY's previous close; `weight` (0 to 1) is estimated by non-negative least squares on the 60 sessions before `as_of` (`as_of` itself not used) |
+| `not_estimated` | list of symbols | stocks with a bar today but fewer than 60 valid returns in that span: no weight, no points |
+| `sum_points` | float | sum of the points of all stocks with a weight |
+| `actual_points` | float | NIFTY's close minus its previous close |

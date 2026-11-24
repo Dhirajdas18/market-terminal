@@ -22,6 +22,8 @@ the app on that file with no network and refresh off.
   Movers tab: top 5 gainers, losers and unusual-volume stocks
 - [x] Breadth tab: stocks above their 50-day average, up / down / unchanged and 250-day highs and lows,
   each with the number of stocks it could be computed for, and a one-year line of the 50-day share
+- [x] Sectors tab: a heatmap of the 15 sectors' average day return with the number of stocks in each, and
+  the 10 stocks that moved NIFTY most in index points, from weights estimated over the previous 60 sessions
 
 ## Usage
 
@@ -32,6 +34,7 @@ uv run mt report data      # README chart -> out/, numbers printed
 uv run mt report overview  # the S&P 500 check below
 uv run mt report candles   # gaps and unusual volume below
 uv run mt report breadth   # the out-of-sample check below
+uv run mt report sectors   # the tracking test below
 uv run pytest
 ```
 
@@ -93,6 +96,20 @@ closes. Up, down and unchanged use adjusted closes with the known Yahoo errors r
 average and high/low counts use closes with the bad prints and pre-listing prices in
 `docs/data/yahoo_fixes.csv` removed. Rows that are not trading days (a holiday, or a bar Yahoo gives one
 ticker on a Saturday) are dropped before any window is taken. The line is drawn when the tab is first opened.
+
+## Sectors tab
+
+<a href="docs/img/screen-sectors.png"><img src="docs/img/screen-sectors.png" alt="The Sectors tab: the line Sum of estimates +84 pts, NIFTY moved +91 pts; a table of 15 sectors with the day return in a cell coloured from red (Oil Gas and Consumable Fuels, −2.41%) through grey to green (Information Technology, +1.87%) and the number of stocks; and a table of the 10 stocks that moved NIFTY most with index points, weight and a bar, then COALINDIA and JIOFIN marked weight not estimated yet" width="100%"></a>
+
+The heatmap shows each sector's equal-weight mean of its stocks' day returns (a stock with no bar is left
+out of the mean and of the count); the colour is grey at 0 and reaches full green or red at ±2%. NIFTY is
+a price index, so returns here come from `close`, not `adj_close`, with the unadjusted corporate actions in
+`docs/data/yahoo_fixes.csv` set to a zero return. NSE's daily weights are not free, so each stock's weight
+is estimated: the non-negative weights (`scipy.optimize.nnls`) that best reproduce NIFTY's daily returns
+from the stocks' over the 60 sessions before the day (the day itself is not in the fit), scaled to sum to 1.
+A stock's points are weight × its day return × NIFTY's previous close. A stock without 60 valid returns
+in that span has no weight and is listed as "weight not estimated yet". The header compares the sum of all
+estimates with NIFTY's actual move; finding 5 measures how far apart the two are.
 
 ## Findings
 
@@ -194,17 +211,47 @@ for that day or the next.
 - **Stock count:** the 50-day share is computed over 38 stocks on 2 Jan 2008, growing to 50.
 - `mt report breadth` prints every number above.
 
+### 5. Out of sample, weights from the previous 60 sessions put the sum of stock contributions within 10 NIFTY points of the day's move on 56.8% of 4,127 sessions from 2010 (equal weights: 26.3%); the median error is 14.7% of the day's move
+
+<a href="docs/img/sectors_tracking.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/sectors_tracking.png"><img src="docs/img/sectors_tracking.gif" alt="Scatter of the estimated NIFTY day return (sum of weight times stock return) against NIFTY's actual day return for 4,127 sessions from 2010 to 2026, along a dashed line where the two are equal" width="720"></picture></a>
+
+<a href="docs/img/sectors_error_by_year.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/sectors_error_by_year.png"><img src="docs/img/sectors_error_by_year.gif" alt="Grouped bars per year from 2010 to 2026: share of sessions where the estimated contributions are within 10 index points of NIFTY's move, from 38% in 2021 to 79% in 2011, against 10% to 47% with equal weights" width="720"></picture></a>
+
+- **Test:** every session from 4 Jan 2010 to 23 Nov 2026 with a NIFTY return (4,127) is scored with
+  weights fitted only on the 60 sessions before it. Error is the sum of the stocks' contributions minus
+  NIFTY's actual points. A stock without 60 valid returns before the day has no weight and adds nothing:
+  41 to 50 stocks (median 47) have one on a scored session.
+- **Estimated weights:** absolute error median 8.4 points, 90th percentile 24.6; within 10 points on
+  56.8% of sessions. Error as a share of NIFTY's absolute move: median 14.7%, 13.4% with all days summed.
+- **Equal weights (the plain baseline):** median 21.3 points, 90th percentile 71.1, within 10 points on
+  26.3%; median 36.8% of the move, 35.5% with all days summed.
+- **By period:** within 10 points on 68.1% of the 1,693 sessions of 2010 to 2016 and 49.0% of the 2,434
+  from 2017 on; by year from 37.9% (2021) to 78.6% (2011). NIFTY's mean previous close was 5,457 in 2010
+  and 24,139 in 2026, so 10 points is a smaller share of the index later; the median error as a share of
+  the day's move was 17.3% in 2010 and 6.4% in 2026.
+- **NSE factsheet:** [the NIFTY 50 factsheet](https://www.niftyindices.com/Factsheet/ind_nifty50.pdf) dated 30 Oct 2026
+  (fetched 24 Nov 2026; not stored here) lists 10 weights. Weights estimated from the 60 sessions ending
+  that day put 8 of the same 10 stocks in the top 10 (M&M and TCS in place of Kotak Mahindra Bank and
+  Bajaj Finance). Over NSE's 10 stocks the mean absolute difference is 0.41 percentage points, the largest
+  1.06 (Kotak Mahindra Bank: 2.13% estimated, 3.19% listed), and the 10 estimates total 51.3% against 53.04%.
+- **No regularisation:** the plain non-negative fit is used; 60 observations for up to 50 weights are
+  noisy, which is why the daily check in the app and this test exist.
+- **Sample:** the 50 are today's members applied to past years (survivorship-biased);
+  `mt report sectors` prints every number above.
+
 ## Design
 
 - `src/mt/data.py`: tickers, Yahoo download with retries (`DownloadFailed` names any missing ticker and
   leaves the cache untouched), incremental cache update with a 7-day overlap written atomically, cache
   load with a date filter, daily returns with known Yahoo errors repaired from
   `docs/data/yahoo_fixes.csv`.
-- `src/mt/session.py`: which trading day to show.
+- `src/mt/session.py`: which trading day to show, and which rows of the table are NSE sessions at all.
 - `src/mt/overview.py`: day / week / year-to-date change and 52-week position per series.
 - `src/mt/candles.py`: moving averages, gaps, traded value, movers and unusual volume.
 - `src/mt/breadth.py`: stocks above their average, up / down / unchanged, highs and lows with their
   denominators, the 50-day share per session, and the out-of-sample check.
+- `src/mt/sectors.py`: sector returns, the non-negative weight estimate, contributions in index points
+  and the rolling out-of-sample tracking test.
 - `src/mt/snapshot.py`: one plain dict that every screen reads; schema in [docs/snapshot.md](docs/snapshot.md).
 - `src/mt/app.py`, `widgets.py`, `app.tcss`: the Textual app; colours from the chart tokens in `plots.py`.
 - `src/mt/reports.py`: README findings, reproducible with `mt report <topic>`.

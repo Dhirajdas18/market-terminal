@@ -499,3 +499,73 @@ def test_breadth_tab_handles_missing_values_and_empty_section():
             return [str(s.content) for s in app.query(Static) if s.has_class("empty")]
 
     assert "No breadth data." in asyncio.run(run())
+
+
+def test_sectors_tab(snap_compare):
+    async def go(pilot):
+        _open_tab(pilot.app, "Sectors")
+        await pilot.pause()
+        await pilot.pause()
+
+    assert snap_compare(TerminalApp(SNAP, None), run_before=go, terminal_size=(120, 36))
+
+
+def _sectors_view(snap: dict):
+    from textual.widgets import DataTable
+
+    app = TerminalApp(snap, None)
+
+    def cells(table):
+        return [[str(c.plain if hasattr(c, "plain") else c) for c in table.get_row_at(i)]
+                for i in range(table.row_count)]
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Sectors")
+            await pilot.pause()
+            header = str(app.query_one("#sectors-summary", Static).content)
+            heat = app.query_one("#sector-heat", DataTable)
+            contrib = app.query_one("#contributions", DataTable)
+            first, last = heat.get_row_at(0)[1], heat.get_row_at(heat.row_count - 1)[1]
+            styles = [first.style, last.style]
+            return header, cells(heat), cells(contrib), [str(s) for s in styles]
+
+    return asyncio.run(run())
+
+
+def test_sectors_tab_prints_values_counts_and_the_daily_check():
+    header, heat, contrib, styles = _sectors_view(SNAP)
+    assert header.startswith("Sum of estimates: +84 pts · NIFTY moved: +91 pts")
+    assert heat[0][0] == "Information Technology" and heat[0][1] == "+1.87%" and heat[0][2] == "2"
+    assert heat[-1][1] == "−2.41%"  # true minus sign
+    assert "on #" in styles[0] and "on #" in styles[1] and styles[0] != styles[1]
+    assert contrib[0][0] == "RELIANCE" and contrib[0][1] == "−52.3"
+    assert contrib[0][2] == "9.0%"
+    assert [r[0] for r in contrib[-2:]] == ["COALINDIA", "JIOFIN"]
+    assert contrib[-1][1] == "weight not estimated yet"
+
+
+def test_sectors_tab_zero_is_grey_and_missing_values_are_dashes():
+    from mt.widgets import heat_colour
+
+    assert heat_colour(0.0) == "#2e2d2b" and heat_colour(None) == "#2e2d2b"
+    assert heat_colour(0.05) == heat_colour(0.02) != heat_colour(0.01)
+    snap = json.loads(json.dumps(SNAP))
+    snap["contributions"]["sum_points"] = None
+    snap["contributions"]["top"][0]["points"] = None
+    header, _, contrib, _ = _sectors_view(snap)
+    assert header.startswith("Sum of estimates: — · NIFTY moved: +91 pts")
+    assert contrib[0][1] == "—"
+
+
+def test_sectors_tab_empty_section():
+    snap = {**SNAP, "sectors": [], "contributions": {}}
+    app = TerminalApp(snap, None)
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Sectors")
+            await pilot.pause()
+            return [str(s.content) for s in app.query(Static) if s.has_class("empty")]
+
+    assert "No sector data." in asyncio.run(run())

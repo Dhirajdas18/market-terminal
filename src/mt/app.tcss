@@ -99,3 +99,23 @@ DataTable {
 #breadth-spark {
     height: 1fr;
 }
+
+#sectors {
+    height: 1fr;
+}
+
+#sectors-summary {
+    height: auto;
+    padding: 1 2 0 2;
+}
+
+#sector-boxes {
+    height: 1fr;
+    padding: 1;
+}
+
+.sector-box {
+    width: 1fr;
+    height: auto;
+    margin-right: 2;
+}

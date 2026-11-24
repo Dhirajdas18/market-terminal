@@ -368,3 +368,103 @@ def breadth_tab(snap: dict) -> Widget:
 
 
 TABS.append(("Breadth", breadth_tab))
+
+
+HEAT_FULL = 0.02  # a sector move of this size or more gets the full colour
+BAR_CELLS = 12
+
+
+def heat_colour(ret: float | None) -> str:
+    """Cell background for a sector return: the grid grey at 0, blending to the chart green (up)
+    or red (down) at ±HEAT_FULL and beyond. A missing value is grey."""
+    base = _rgb(GRID)
+    if ret is None or ret == 0:
+        return GRID
+    target = _rgb(UP if ret > 0 else DOWN)
+    t = min(abs(ret) / HEAT_FULL, 1.0)
+    return "#" + "".join(f"{round(b + (g - b) * t):02x}" for b, g in zip(base, target, strict=True))
+
+
+def pts(value: float | None, digits: int = 0) -> str:
+    """'+84' or '−52.3' index points with a true minus sign; an em dash when missing."""
+    return "—" if value is None else f"{value:+.{digits}f}".replace("-", "−")
+
+
+def summary_text(c: dict) -> Text:
+    """'Sum of estimates: +84 pts · NIFTY moved: +91 pts', plus how the estimate is made."""
+    est, actual = c.get("sum_points"), c.get("actual_points")
+    text = Text(
+        f"Sum of estimates: {pts(est)}{'' if est is None else ' pts'} · "
+        f"NIFTY moved: {pts(actual)}{'' if actual is None else ' pts'}",
+        style="bold",
+    )
+    text.append(
+        "\nWeights are estimated from the previous 60 sessions (NIFTY's daily weights are not "
+        "public), so the sum differs from the real move.",
+        style=MUTED,
+    )
+    return text
+
+
+def heat_table(rows: list[dict]) -> DataTable:
+    table = DataTable(cursor_type="none", zebra_stripes=False, id="sector-heat")
+    table.add_column("Sector")
+    table.add_column("Day", width=9)
+    table.add_column("Stocks", width=6)
+    for r in rows:
+        ret = r.get("ret")
+        cell = Text(pct(ret), style=f"{TEXT} on {heat_colour(ret)}", justify="center")
+        table.add_row(Text(str(r["name"])), cell, Text(str(r.get("n", "—")), justify="right"))
+    return table
+
+
+def contribution_table(c: dict) -> DataTable:
+    table = DataTable(cursor_type="none", zebra_stripes=False, id="contributions")
+    table.add_columns("Stock", "Points", "Weight", "")
+    top = c.get("top") or []
+    biggest = max((abs(r["points"]) for r in top if r.get("points") is not None), default=0)
+    for r in top:
+        p, w = r.get("points"), r.get("weight")
+        cells = round(abs(p) / biggest * BAR_CELLS) if p is not None and biggest else 0
+        bar = Text("█" * cells, style=UP if (p or 0) > 0 else DOWN)
+        weight = "—" if w is None else f"{w * 100:.1f}%"
+        table.add_row(
+            _symbol(r["symbol"]),
+            Text(pts(p, 1), justify="right"),
+            Text(weight, justify="right"),
+            bar,
+        )
+    for sym in c.get("not_estimated") or []:
+        table.add_row(_symbol(sym), Text("weight not estimated yet", style=MUTED), "", "")
+    return table
+
+
+def sectors_tab(snap: dict) -> Widget:
+    rows, c = snap.get("sectors") or [], snap.get("contributions") or {}
+    if not rows and not c:
+        return Static("No sector data.", classes="empty")
+    parts: list[Widget] = []
+    if c:
+        parts.append(Static(summary_text(c), id="sectors-summary"))
+    boxes: list[Widget] = []
+    if rows:
+        boxes.append(
+            Vertical(
+                Static("Sectors: average day return of their stocks", classes="subtitle"),
+                heat_table(rows),
+                classes="sector-box",
+            )
+        )
+    if c:
+        boxes.append(
+            Vertical(
+                Static("Who moved NIFTY (index points, top 10)", classes="subtitle"),
+                contribution_table(c),
+                classes="sector-box",
+            )
+        )
+    parts.append(Horizontal(*boxes, id="sector-boxes"))
+    return Vertical(*parts, id="sectors")
+
+
+TABS.append(("Sectors", sectors_tab))

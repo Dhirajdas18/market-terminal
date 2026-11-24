@@ -108,3 +108,14 @@ def test_next_day_table_uses_only_prior_volume_and_next_return():
     assert row["top"] and abs(row["today"] - 0.01) < 1e-12 and abs(row["next"] - 0.04) < 1e-12
     assert out[out["date"] == idx[21]]["top"].sum() == 1
     assert out["date"].max() == idx[22]  # the last day has no next-day return
+
+
+def test_tracking_stats_share_within_and_error_against_the_move():
+    from mt.reports import _tracking_stats
+
+    err = pd.Series([1.0, -4.0, 20.0, -2.0])
+    actual = pd.Series([10.0, -20.0, 40.0, 0.0])  # a zero move has no relative error
+    st = _tracking_stats(err, actual)
+    assert st["within"] == 0.75 and st["median"] == 3.0
+    assert abs(st["rel_median"] - 0.2) < 1e-12  # relative errors 0.1, 0.2, 0.5
+    assert abs(st["rel_total"] - 27 / 70) < 1e-12

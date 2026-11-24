@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from mt import breadth, candles, plots
+from mt import breadth, candles, plots, sectors
 from mt.data import (
     FIXES,
     NSE_TICKERS,
@@ -16,6 +16,7 @@ from mt.data import (
     flag_adjusted_drops,
     load_cache,
 )
+from mt.session import sessions
 
 VOL_INDEX = "INDIAVIX"  # a volatility index halves for real; not a bad-print candidate
 
@@ -470,9 +471,125 @@ def report_breadth(out_dir: Path) -> dict:
     return out
 
 
+def _tracking_stats(err: pd.Series, actual: pd.Series, within: float = 10.0) -> dict:
+    """Error (estimate minus actual NIFTY points) summarised: median / 90th percentile of the
+    absolute error, share of days within `within` points, and the error against NIFTY's move."""
+    a = err.abs()
+    rel = a / actual.abs().where(actual.abs() > 0)
+    return {
+        "median": float(a.median()),
+        "p90": float(a.quantile(0.9)),
+        "within": float((a <= within).mean()),
+        "rel_median": float(rel.median()),
+        "rel_total": float(a.sum() / actual.abs().sum()),
+    }
+
+
+def _tracking_charts(trk: pd.DataFrame, out_dir: Path) -> None:
+    fig, ax = plt.subplots(figsize=(10, 4.6))
+    est, act = trk["est_ret"] * 100, trk["actual_ret"] * 100
+    ax.scatter(est, act, s=5, color=plots.SERIES[0], alpha=0.5, linewidths=0)
+    lim = float(max(est.abs().max(), act.abs().max())) * 1.05
+    ax.plot([-lim, lim], [-lim, lim], color=plots.TEXT_2, linewidth=0.9, linestyle="--")
+    ticks = np.arange(-10, 11, 5)
+    labels = [f"{t:+d}%".replace("-", "−") if t else "0" for t in ticks]
+    ax.set_xticks(ticks, labels)
+    ax.set_yticks(ticks, labels)
+    ax.set_xlim(-lim, lim)
+    ax.set_ylim(-lim, lim)
+    ax.set_xlabel("sum of weight × stock return, weights from the previous 60 sessions")
+    ax.set_ylabel("NIFTY's day return")
+    ax.set_title(
+        f"Estimated against actual NIFTY day return, {len(trk):,} sessions "
+        f"{trk.index[0]:%Y}–{trk.index[-1]:%Y}\ndashed line: estimate equals actual"
+    )
+    plots.save(fig, out_dir, "sectors_tracking")
+
+    fig, ax = plt.subplots(figsize=(10, 4.6))
+    years = sorted(set(trk.index.year))
+    x = np.arange(len(years))
+    nn, eq = [], []
+    for y in years:
+        part = trk[trk.index.year == y]
+        nn.append(float(((part["est_pts"] - part["actual_pts"]).abs() <= 10).mean()) * 100)
+        eq.append(float(((part["eq_pts"] - part["actual_pts"]).abs() <= 10).mean()) * 100)
+    ax.bar(x - 0.2, nn, 0.4, color=plots.SERIES[0], label="estimated weights")
+    ax.bar(x + 0.2, eq, 0.4, color=plots.SERIES[1], label="equal weights")
+    ax.set_xticks(x, [str(y)[2:] if y != years[0] else str(y) for y in years], fontsize=8)
+    ax.set_ylim(0, 100)
+    ax.set_yticks([0, 25, 50, 75, 100], ["0%", "25%", "50%", "75%", "100%"])
+    ax.set_ylabel("sessions within 10 index points")
+    ax.grid(axis="x", visible=False)
+    ax.legend(loc="upper left", fontsize=8, ncols=2)
+    ax.set_title("Share of sessions where the estimate is within 10 index points of NIFTY's move")
+    plots.save(fig, out_dir, "sectors_error_by_year")
+
+
+def report_sectors(out_dir: Path) -> dict:
+    """Does the sum of estimated contributions add up to NIFTY's move, out of sample? Each session
+    from 2010 uses weights fitted on the 60 sessions before it only (price returns from `close`)."""
+    table = _table()
+    close = table["close"][[*SYMBOLS, "NIFTY"]]
+    trk = sectors.rolling_tracking(close)
+    err = trk["est_pts"] - trk["actual_pts"]
+    eq_err = trk["eq_pts"] - trk["actual_pts"]
+    out: dict = {
+        "sessions scored": f"{len(trk):,} ({trk.index[0]:%Y-%m-%d} to {trk.index[-1]:%Y-%m-%d})",
+        "stocks with a weight per session (min / median / max)": (
+            int(trk["n_est"].min()),
+            int(trk["n_est"].median()),
+            int(trk["n_est"].max()),
+        ),
+    }
+    eras = {
+        "all": trk.index >= trk.index[0],
+        "2010-2016": trk.index.year <= 2016,
+        "2017 on": trk.index.year >= 2017,
+    }
+    for label, e in (("estimated weights", err), ("equal weights", eq_err)):
+        for era, mask in eras.items():
+            st = _tracking_stats(e[mask], trk["actual_pts"][mask])
+            out[f"{label}, {era}"] = (
+                f"{int(mask.sum()):,} sessions; absolute error median {st['median']:.1f} pts, "
+                f"90th percentile {st['p90']:.1f} pts; within 10 pts on {_pct(st['within'], 1)}; "
+                f"error / NIFTY's absolute move: median {_pct(st['rel_median'], 1)}, "
+                f"all days together {_pct(st['rel_total'], 1)}"
+            )
+    avg_level = trk["actual_pts"].div(trk["actual_ret"]).groupby(trk.index.year).mean()
+    out["NIFTY's mean previous close, first / last year"] = (
+        f"{avg_level.iloc[0]:,.0f} / {avg_level.iloc[-1]:,.0f}"
+    )
+    snap = sectors.contributions_section(table)
+    day = sessions(close).index[-1]
+    if snap:
+        est, act = (f"{snap[k]:+.1f}".replace("-", "−") for k in ("sum_points", "actual_points"))
+        out["latest day"] = (
+            f"{day:%Y-%m-%d}: sum of estimates {est} pts, NIFTY moved {act} pts; "
+            f"not estimated: {snap['not_estimated'] or 'none'}"
+        )
+    px = sessions(close)
+    r = daily_returns(px.drop(columns="NIFTY"))
+    r_index = px["NIFTY"].pct_change(fill_method=None)
+    month_end = px.index[px.index < px.index[-1].replace(day=1)][-1]  # NSE's factsheets are monthly
+    ends = {  # rows to pass: the window is the 60 sessions before the last row passed
+        "latest window": len(px),
+        f"window ending {month_end:%Y-%m-%d}": int(px.index.get_loc(month_end)) + 2,
+    }
+    for label, rows in ends.items():
+        w = sectors.nnls_weights(r.iloc[:rows], r_index.iloc[:rows]).dropna()
+        w = w.sort_values(ascending=False)
+        out[f"estimated top-10 weights, {label}"] = ", ".join(
+            f"{s} {v * 100:.1f}%" for s, v in w.head(10).items()
+        ) + f" (together {_pct(float(w.head(10).sum()), 1)})"
+    out["sample"] = "today's 50 members applied to past years: survivorship-biased"
+    _tracking_charts(trk, out_dir)
+    return out
+
+
 REPORTS = {
     "data": report_data,
     "overview": report_overview,
     "candles": report_candles,
     "breadth": report_breadth,
+    "sectors": report_sectors,
 }
