@@ -10,7 +10,7 @@ from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.widgets import DataTable, Footer, Static, TabbedContent, TabPane
+from textual.widgets import DataTable, Footer, Static, TabbedContent, TabPane, Tabs
 
 from mt import watchlist, widgets
 from mt.data import SYMBOLS, error_label
@@ -57,6 +57,9 @@ class TerminalApp(App):
         Binding("a", "add_stock", "Add stock"),
         Binding("d", "remove_stock", "Remove"),
         Binding("down", "focus_table", "Pick a stock"),
+        Binding("up", "focus_tabs", "Tab bar", show=False),
+        Binding("1", "jump_tab(1)", "Tabs", key_display="1-6"),
+        *[Binding(str(n), f"jump_tab({n})", show=False) for n in range(2, 7)],
     ]
 
     def __init__(
@@ -131,6 +134,10 @@ class TerminalApp(App):
             return self._active_tab() == _pane_id("Watchlist") and bool(self.watchlist)
         if action == "focus_table":  # from the tab bar, go down into the tab's stock table
             return self._symbol_table() is not None and not isinstance(self.focused, DataTable)
+        if action == "jump_tab":  # only on the main screen, never under a picker or the stock view
+            return len(self.screen_stack) == 1 and self._active_tab() is not None
+        if action == "focus_tabs":
+            return self._active_tab() is not None and not isinstance(self.focused, Tabs)
         if action not in ("show_year", "fit_width"):
             return True
         state = self._chart_state()  # one key, two labels: show only the one that applies
@@ -140,7 +147,7 @@ class TerminalApp(App):
         active = self._active_tab()
         if active is None:
             return None
-        tables = self.query_one(f"#{active}").query("DataTable.symbols")
+        tables = self.query_one(f"#{active}").query(widgets.PaneTable)
         return tables.first() if tables else None
 
     def action_focus_table(self) -> None:
@@ -148,8 +155,36 @@ class TerminalApp(App):
         if table is not None:
             table.focus()
 
+    def action_focus_tabs(self) -> None:
+        tabs = self.query(TabbedContent)
+        if tabs and self._active_tab() is not None:
+            tabs.first().query_one(Tabs).focus()
+
+    def action_jump_tab(self, number: int) -> None:
+        tabs = self.query(TabbedContent)
+        if tabs and 1 <= number <= len(widgets.TABS):
+            tabs.first().active = _pane_id(widgets.TABS[number - 1][0])
+
+    def focus_neighbour(self, table: DataTable, step: int) -> None:
+        """Move focus to the next table in the tab, left (-1) or right (+1), keeping the row."""
+        active = self._active_tab()
+        if active is None:
+            return
+        tables = list(self.query_one(f"#{active}").query(DataTable))
+        if table not in tables:
+            return
+        other = tables[min(max(tables.index(table) + step, 0), len(tables) - 1)]
+        if other is not table:
+            if other.row_count:
+                other.move_cursor(row=min(table.cursor_row, other.row_count - 1))
+            other.focus()
+
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        if event.data_table.has_class("symbols") and event.row_key.value:
+        if not event.row_key.value:
+            return
+        if event.data_table.id == "sector-heat":
+            self.push_screen(widgets.SectorScreen(str(event.row_key.value)))
+        elif event.data_table.has_class("symbols"):
             self.push_screen(widgets.StockScreen(str(event.row_key.value)))
 
     def close_stock(self) -> None:

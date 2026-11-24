@@ -53,8 +53,8 @@ new data is in, or "Refresh failed: <error type>" with the cached data still on 
 `~/.config/market-terminal/mt.log`.
 
 Keys: `r` refresh (runs in the background; the screen keeps the current data if it fails), `q` quit.
-`←`/`→` switch tabs; `y` on the Chart tab toggles between the width-fitted candles and the whole year; `↓` (or Tab) moves into a tab's stock table, Enter opens the highlighted stock and Escape
-returns. On the Watchlist tab `a` picks a stock to add and `d` removes the highlighted one. The watchlist is
+`←`/`→` switch tabs while the tab bar is focused, and `1`–`6` jump straight to a tab from anywhere. `↓` (or Tab) moves into the tab's first table and `↑` on its first row (or from a chart) goes back to the tab bar. Where tabs hold several tables side by side (Movers, Sectors) `←`/`→` move between them, keeping the row. Enter opens the highlighted stock (on Sectors, a sector: its stocks, each with its NIFTY contribution) and Escape goes back one screen. `y` on the Chart tab toggles between the width-fitted candles and the whole year.
+On the Watchlist tab `a` picks a stock to add and `d` removes the highlighted one. The watchlist is
 `~/.config/market-terminal/watchlist.json` (a JSON list of NIFTY 50 symbols; anything else in it is ignored).
 The header always states which day is shown, e.g. "Data for Mon 23 Nov 2026", names any stock
 whose bar for a newer day has not arrived, and lists stocks with no bar for 3 or more sessions as
@@ -147,6 +147,12 @@ from the stocks' over the 60 sessions before the day (the day itself is not in t
 A stock's points are weight × its day return × NIFTY's previous close. A stock without 60 valid returns
 in that span has no weight and is listed as "weight not estimated yet". The header compares the sum of all
 estimates with NIFTY's actual move; finding 5 measures how far apart the two are.
+
+Enter on a heatmap row opens that sector: its stocks, best day first, with close, day return and each
+stock's contribution in index points and weight (or "weight not estimated yet"). Enter on one of them
+opens the stock view; Escape goes back a screen each time.
+
+<a href="docs/img/screen-sector.png"><img src="docs/img/screen-sector.png" alt="The Financial Services sector view: the title with 4 stocks and an average day of −1.29%, then HDFCBANK, SBIN, ICICIBANK and JIOFIN with close, day return, index points and weight, JIOFIN marked weight not estimated yet" width="100%"></a>
 
 The screenshot is synthetic demo data: its 10 listed stocks add +68.1 points, the other 38 stocks with a
 weight add +16.2, and the two make the +84 shown.

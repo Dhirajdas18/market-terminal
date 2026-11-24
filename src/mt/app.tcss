@@ -140,6 +140,12 @@ DataTable {
     padding: 0 2 1 2;
 }
 
+#sector-title {
+    height: auto;
+    padding: 1 2;
+    background: $mt-surface;
+}
+
 #stock-candles {
     height: 1fr;
 }
@@ -159,4 +165,12 @@ PickStock {
 #pick-list {
     height: 1fr;
     background: $mt-raised;
+}
+
+PaneTable:focus {
+    background: $mt-raised;
+}
+
+PaneTable:focus > .datatable--cursor {
+    background: $mt-accent 40%;
 }

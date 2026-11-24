@@ -247,14 +247,13 @@ def chart_tab(snap: dict) -> Widget:
     return ChartPanel(idx)
 
 
-class SymbolTable(DataTable):
-    """A table whose rows are stocks: the cursor moves by row and Enter opens the stock view (the
-    row key is the symbol). The cursor shows only while the table has focus, so it does not paint
-    over the bars and colours of a table nobody is using; the watchlist keeps it, because `d`
-    removes the highlighted row."""
+class PaneTable(DataTable):
+    """A table in a tab: the row cursor shows only while it has focus, so it does not paint over
+    the colours of a table nobody is using (`keep_cursor` overrides that). Up on the first row
+    goes back to the tab bar; left and right move to the table beside it."""
 
-    def __init__(self, ident: str, keep_cursor: bool = False):
-        super().__init__(cursor_type="row", zebra_stripes=False, id=ident, classes="symbols")
+    def __init__(self, ident: str, keep_cursor: bool = False, classes: str | None = None):
+        super().__init__(cursor_type="row", zebra_stripes=False, id=ident, classes=classes)
         self._keep_cursor = keep_cursor
         self.show_cursor = keep_cursor
 
@@ -263,6 +262,26 @@ class SymbolTable(DataTable):
 
     def on_blur(self, event: events.Blur) -> None:
         self.show_cursor = self._keep_cursor
+
+    def action_cursor_up(self) -> None:
+        if self.cursor_row <= 0:
+            self.app.action_focus_tabs()
+        else:
+            super().action_cursor_up()
+
+    def action_cursor_left(self) -> None:
+        self.app.focus_neighbour(self, -1)
+
+    def action_cursor_right(self) -> None:
+        self.app.focus_neighbour(self, 1)
+
+
+class SymbolTable(PaneTable):
+    """A table whose rows are stocks: Enter opens the stock view (the row key is the symbol). The
+    watchlist keeps its cursor, because `d` removes the highlighted row."""
+
+    def __init__(self, ident: str, keep_cursor: bool = False):
+        super().__init__(ident, keep_cursor, classes="symbols")
 
 
 def symbol_table(ident: str, keep_cursor: bool = False) -> DataTable:
@@ -444,14 +463,18 @@ def summary_text(c: dict) -> Text:
 
 
 def heat_table(rows: list[dict]) -> DataTable:
-    table = DataTable(cursor_type="none", zebra_stripes=False, id="sector-heat")
+    table = PaneTable("sector-heat")
     table.add_column("Sector")
     table.add_column("Day", width=9)
     table.add_column("Stocks", width=6)
     for r in rows:
         ret = r.get("ret")
         cell = Text(pct(ret), style=f"{TEXT} on {heat_colour(ret)}", justify="center")
-        table.add_row(Text(str(r["name"])), cell, Text(str(r.get("n", "—")), justify="right"))
+        add_symbol_row(
+            table,
+            [Text(str(r["name"])), cell, Text(str(r.get("n", "—")), justify="right")],
+            str(r["name"]),  # the row key is the sector name: Enter opens its stocks
+        )
     return table
 
 
@@ -666,6 +689,71 @@ class StockScreen(Screen):
         idx = row["candles"]
         n = window_size(self.size.width, len(idx["dates"]), False)
         draw_candles(plots.first(), idx, n, span_label(n, len(idx["dates"]), False), self.symbol)
+
+    def action_close(self) -> None:
+        self.app.close_stock()
+
+
+def sector_rows(snap: dict, sector: str) -> list[list]:
+    """One row per stock of `sector`, best day first (no return last): symbol, close, day, its
+    NIFTY contribution in points and weight, as the snapshot holds them."""
+    c = snap.get("contributions") or {}
+    contrib = {t["symbol"]: t for t in c.get("all") or c.get("top") or []}
+    pending = set(c.get("not_estimated") or [])
+    every = (snap.get("stocks") or {}).items()
+    stocks = [(sym, r) for sym, r in every if r.get("sector") == sector]
+    stocks.sort(key=lambda kv: (kv[1].get("day") is None, -(kv[1].get("day") or 0), kv[0]))
+    out = []
+    for sym, r in stocks:
+        t = contrib.get(sym)
+        if t:
+            points, weight = pts(t.get("points"), 1), plain_pct(t.get("weight"))
+        elif sym in pending:
+            points, weight = "—", "weight not estimated yet"
+        else:
+            points, weight = "—", "—"
+        out.append([
+            _symbol(sym), Text(num(r.get("close")), justify="right"), _signed(r.get("day")),
+            Text(points, justify="right"), Text(weight, justify="right"),
+        ])
+    return out
+
+
+class SectorScreen(Screen):
+    """One sector's stocks with each one's NIFTY contribution. Built when a heatmap row is
+    opened; Enter on a stock opens the stock view, Escape returns."""
+
+    BINDINGS = [Binding("escape", "close", "Back")]
+
+    def __init__(self, sector: str):
+        super().__init__()
+        self.sector = sector
+
+    def compose(self):
+        rows = sector_rows(self.app.snapshot, self.sector)
+        avg = next(
+            (s.get("ret") for s in self.app.snapshot.get("sectors") or []
+             if s.get("name") == self.sector),
+            None,
+        )
+        title = Text(str(self.sector), style="bold")
+        title.append(f"  ·  {len(rows)} stock{'' if len(rows) == 1 else 's'}  ·  avg day ",
+                     style=MUTED)
+        title.append_text(_signed(avg))
+        yield Static(title, id="sector-title")
+        if not rows:
+            yield Static(Text(f"No stocks for {self.sector} in this snapshot."), classes="empty")
+        else:
+            table = symbol_table("sector-stocks")
+            table.add_columns("Stock", "Close", "Day", "Points", "Weight")
+            for row in rows:
+                add_symbol_row(table, row, row[0].plain)
+            yield table
+        yield Footer()
+
+    def on_mount(self) -> None:
+        for table in self.query("#sector-stocks"):
+            table.focus()
 
     def action_close(self) -> None:
         self.app.close_stock()

@@ -784,7 +784,7 @@ def test_enter_on_a_sectors_row_opens_the_stock_and_escape_closes_it():
             _open_tab(app, "Sectors")
             await pilot.pause()
             before = len(app.screen_stack)
-            await pilot.press("down", "enter")
+            await pilot.press("down", "right", "enter")
             await pilot.pause()
             await pilot.pause()
             opened = (
@@ -868,7 +868,7 @@ def test_stock_view_text_from_the_snapshot_is_not_markup():
         async with app.run_test(size=(120, 36)) as pilot:
             _open_tab(app, "Sectors")
             await pilot.pause()
-            await pilot.press("down", "enter")
+            await pilot.press("down", "right", "enter")
             await pilot.pause()
             return _stock_screen_text(app)
 
@@ -883,7 +883,7 @@ def test_refresh_while_a_stock_is_open_keeps_it_and_updates_the_screen_beneath()
         async with app.run_test(size=(120, 36)) as pilot:
             _open_tab(app, "Sectors")
             await pilot.pause()
-            await pilot.press("down", "enter")
+            await pilot.press("down", "right", "enter")
             await pilot.pause()
             await pilot.press("r")
             await _settled(app, pilot)
@@ -905,7 +905,7 @@ def test_candles_in_the_stock_view_use_the_chart_drawing_code():
         async with app.run_test(size=(120, 36)) as pilot:
             _open_tab(app, "Sectors")
             await pilot.pause()
-            await pilot.press("down", "enter")
+            await pilot.press("down", "right", "enter")
             await pilot.pause()
             await pilot.pause()
             plot = app.screen.query_one(widgets.TokenPlot)
@@ -1044,3 +1044,166 @@ def test_header_strips_terminal_escapes_from_any_notice():
 
     text = asyncio.run(run())
     assert "\x1b" not in text and "\x07" not in text and "y\nz" in text
+
+
+# keyboard navigation: back to the tab bar, number keys, and ←/→ between side-by-side tables
+
+def _active(app: TerminalApp) -> str:
+    from textual.widgets import TabbedContent
+
+    return app.query_one(TabbedContent).active
+
+
+def _nav(title: str, *keys: str, size=(120, 36)):
+    """Open `title`, press `keys`, return (app, focused widget id, active tab) from inside."""
+    from textual.widgets import Tabs
+
+    app = TerminalApp(SNAP, None)
+    seen = {}
+
+    async def run():
+        async with app.run_test(size=size) as pilot:
+            _open_tab(app, title)
+            await pilot.pause()
+            for key in keys:
+                await pilot.press(key)
+                await pilot.pause()
+            seen["focus"] = getattr(app.focused, "id", None)
+            seen["tabs"] = "Tabs" if isinstance(app.focused, Tabs) else type(app.focused).__name__
+            seen["active"] = _active(app)
+            seen["rows"] = {
+                t.id: t.cursor_row for t in app.query("DataTable") if t.cursor_type == "row"
+            }
+
+    asyncio.run(run())
+    return seen
+
+
+def test_up_from_the_first_row_focuses_the_tab_bar_then_right_switches_tab():
+    seen = _nav("Watchlist", "down", "up")
+    assert seen["tabs"] == "Tabs" and seen["active"] == widgets_pane("Watchlist")
+    seen = _nav("Watchlist", "down", "up", "right")
+    assert seen["active"] != widgets_pane("Watchlist")
+
+
+def test_up_inside_a_table_moves_the_cursor_first():
+    seen = _nav("Movers", "down", "down", "up")
+    assert seen["tabs"] == "SymbolTable" and seen["rows"]["gainers"] == 0
+    seen = _nav("Movers", "down", "down", "up", "up")
+    assert seen["tabs"] == "Tabs"
+
+
+def test_up_from_a_widget_that_cannot_move_returns_to_the_tab_bar():
+    app = TerminalApp(SNAP, None)
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Chart")
+            await pilot.pause()
+            app.query_one("#candles").focus()  # a plot is not focusable, so this is a no-op
+            await pilot.press("up")
+            await pilot.pause()
+            from textual.widgets import Tabs
+
+            return isinstance(app.focused, Tabs)
+
+    assert asyncio.run(run())
+
+
+def test_left_right_move_between_the_movers_tables_and_keep_the_row():
+    assert _nav("Movers", "down")["focus"] == "gainers"
+    assert _nav("Movers", "down", "right")["focus"] == "losers"
+    assert _nav("Movers", "down", "right", "right")["focus"] == "unusual"
+    assert _nav("Movers", "down", "right", "right", "left")["focus"] == "losers"
+    assert _nav("Movers", "down", "left")["focus"] == "gainers"  # no wrap, stays
+    assert _nav("Movers", "down", "right", "right", "right")["focus"] == "unusual"
+    seen = _nav("Movers", "down", "down", "down", "right")
+    assert seen["focus"] == "losers" and seen["rows"]["losers"] == 2
+
+
+def test_left_right_move_between_the_sector_tables():
+    assert _nav("Sectors", "down")["focus"] == "sector-heat"  # down: the first table
+    assert _nav("Sectors", "down", "right")["focus"] == "contributions"
+    assert _nav("Sectors", "down", "right", "left")["focus"] == "sector-heat"
+    assert _nav("Sectors", "down", "down", "right")["focus"] == "contributions"
+    assert _nav("Sectors", "down", "down", "right")["rows"]["contributions"] == 1
+
+
+def test_number_keys_jump_to_a_tab():
+    for n, (title, _) in enumerate(widgets.TABS, start=1):
+        assert _nav("Overview", str(n))["active"] == widgets_pane(title)
+
+
+def test_number_keys_are_inert_while_a_screen_is_pushed(tmp_path):
+    app = TerminalApp(SNAP, None)
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Watchlist")
+            await pilot.pause()
+            await pilot.press("a")
+            await pilot.pause()
+            await pilot.press("3")
+            await pilot.pause()
+            return len(app.screen_stack), _active(app)
+
+    depth, active = asyncio.run(run())
+    assert depth == 2 and active == widgets_pane("Watchlist")
+
+
+# the sector view: Enter on a heatmap row
+
+def _sector_run(*keys: str, size=(120, 36)):
+
+    app = TerminalApp(SNAP, None)
+    seen = {}
+
+    async def run():
+        async with app.run_test(size=size) as pilot:
+            _open_tab(app, "Sectors")
+            await pilot.pause()
+            for key in keys:
+                await pilot.press(key)
+                await pilot.pause()
+            await pilot.pause()
+            seen["depth"] = len(app.screen_stack)
+            seen["screen"] = type(app.screen).__name__
+            seen["focus"] = getattr(app.focused, "id", None)
+            seen["active"] = _active(app)
+            tables = app.screen.query("#sector-stocks")
+            if tables:
+                seen["rows"] = _cells(tables.first())
+            title = app.screen.query("#sector-title")
+            seen["title"] = str(title.first().content) if title else None
+
+    asyncio.run(run())
+    return seen
+
+
+def test_enter_on_a_sector_opens_its_stocks_sorted_by_day_with_contribution():
+    # heatmap order is the snapshot's: Information Technology, Metals & Mining, ... ; move to
+    # Financial Services (index 11)
+    seen = _sector_run("down", *["down"] * 11, "enter")
+    assert seen["screen"] == "SectorScreen" and seen["depth"] == 2
+    assert seen["title"].startswith("Financial Services  ·  4 stocks  ·  avg day ")
+    rows = seen["rows"]
+    assert [r[0] for r in rows] == ["HDFCBANK", "SBIN", "ICICIBANK", "JIOFIN"]  # by day, best first
+    assert rows[0][1:] == ["1,750.00", "+0.42%", "+38.1", "13.1%"]
+    assert rows[3][1:] == ["310.00", "+0.04%", "—", "weight not estimated yet"]
+
+
+def test_enter_in_the_sector_view_opens_the_stock_and_escape_unwinds_to_the_heatmap():
+    seen = _sector_run("down", *["down"] * 11, "enter", "enter")
+    assert seen["screen"] == "StockScreen" and seen["depth"] == 3
+    seen = _sector_run("down", *["down"] * 11, "enter", "enter", "escape")
+    assert seen["screen"] == "SectorScreen" and seen["depth"] == 2
+    seen = _sector_run("down", *["down"] * 11, "enter", "enter", "escape", "escape")
+    assert seen["depth"] == 1 and seen["focus"] == "sector-heat"
+    assert seen["active"] == widgets_pane("Sectors")
+
+
+def test_keys_are_inert_in_the_sector_view():
+    seen = _sector_run("down", *["down"] * 11, "enter", "3", "y", "a", "d", "left", "right", "up")
+    assert seen["screen"] == "SectorScreen" and seen["depth"] == 2
+    assert seen["focus"] == "sector-stocks"  # up on the first row stays: no tab bar behind it
+    assert seen["active"] == widgets_pane("Sectors")

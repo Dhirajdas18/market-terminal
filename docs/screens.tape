@@ -61,5 +61,24 @@ Sleep 500ms
 
 Escape
 Sleep 500ms
+
+# back up to the tab bar, left to Sectors, down into the heatmap, open Financial Services
+Up
+Sleep 200ms
+Up
+Sleep 200ms
+Left
+Sleep 800ms
+Down
+Sleep 300ms
+Down@150ms 11
+Sleep 300ms
+Enter
+Sleep 2s
+Screenshot docs/img/screen-sector.png
+Sleep 500ms
+
+Escape
+Sleep 500ms
 Type "q"
 Sleep 500ms
