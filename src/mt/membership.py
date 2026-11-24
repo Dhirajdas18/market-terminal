@@ -1,8 +1,9 @@
 """Once a day, compare docs/data/nifty50.csv with NSE's published NIFTY 50 list.
 
-Runs in the background update thread only. The NSE file is untrusted: HTTPS, a 15 s timeout, the
-read capped at 1 MB, `Symbol` and `Industry` columns required, at most 100 rows, every symbol
-checked against the same pattern as the committed list. Any failure is logged and skipped.
+Runs in the background update thread only. The NSE file is untrusted: HTTPS (no redirect to plain
+HTTP), a 15 s timeout, the read capped at 1 MB, `Symbol` and `Industry` columns required, at most
+100 rows, every symbol checked against the same pattern as the committed list. Any failure is
+logged and skipped.
 """
 
 import csv
@@ -30,6 +31,8 @@ def fetch_nse() -> set[str]:
     """NSE's current NIFTY 50 symbols (raises on any network error or malformed file)."""
     req = urllib.request.Request(URL, headers={"User-Agent": "market-terminal/0.1"})  # noqa: S310 - fixed https URL
     with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:  # noqa: S310
+        if not resp.geturl().startswith("https://"):  # urllib follows redirects to plain http
+            raise ValueError("NSE list redirected away from HTTPS")
         body = resp.read(MAX_BYTES + 1)
     if len(body) > MAX_BYTES:
         raise ValueError("NSE list larger than 1 MB")

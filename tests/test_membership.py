@@ -56,6 +56,11 @@ CSV = "Company Name,Industry,Symbol,Series,ISIN Code\nTata,IT,TCS,EQ,X\nInfosys,
 
 
 class _Resp(io.BytesIO):
+    url = membership.URL  # where the request ended up after any redirects
+
+    def geturl(self):
+        return self.url
+
     def __enter__(self):
         return self
 
@@ -63,12 +68,14 @@ class _Resp(io.BytesIO):
         self.close()
 
 
-def _serve(monkeypatch, body: bytes):
+def _serve(monkeypatch, body: bytes, final_url: str = membership.URL):
     seen = {}
 
     def fake_open(req, timeout=None):
         seen["url"], seen["timeout"] = req.full_url, timeout
-        return _Resp(body)
+        resp = _Resp(body)
+        resp.url = final_url
+        return resp
 
     monkeypatch.setattr(membership.urllib.request, "urlopen", fake_open)
     return seen
@@ -100,3 +107,9 @@ def test_binary_stamp_is_ignored_and_fetch_runs(tmp_path):
     stamp.write_bytes(b"\xff\xfe\x00bad")
     assert membership.check(COMMITTED, lambda: set(COMMITTED), stamp, today="2026-11-24") is None
     assert stamp.read_text() == "2026-11-24"  # rewritten
+
+
+def test_fetch_refuses_a_redirect_away_from_https(monkeypatch):
+    _serve(monkeypatch, CSV.encode(), final_url="http://nsearchives.nseindia.com/x.csv")
+    with pytest.raises(ValueError, match="HTTPS"):
+        membership.fetch_nse()
