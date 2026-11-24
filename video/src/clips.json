@@ -1,0 +1,13 @@
+{
+  "clip": "clips/session.mp4",
+  "durationSeconds": 37.08,
+  "starts": {
+    "overview": 0,
+    "chart": 7.42,
+    "movers": 12.82,
+    "breadth": 17.22,
+    "sectors": 21.62,
+    "watchlist": 26.98,
+    "quit": 33.3
+  }
+}

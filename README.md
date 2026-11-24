@@ -83,12 +83,25 @@ needs Node, VHS, ttyd and ffmpeg; nothing in `video/` runs in CI.
 cd video
 npm ci
 npm run clips    # vhs docs/clips.tape: footage of every tab in video/public/clips/session.mp4
-npm run render   # docs/img/demo.mp4, 1920 x 1080 at 30 fps
+npm run render   # checks the clip, then writes docs/img/demo.mp4, 1920 x 1080 at 30 fps
 npm run gif      # docs/img/demo.gif, 1600 px wide at 12 fps
 ```
 
-After re-recording, check the segment start times in `video/src/clips.ts`. The captions are in
-`video/src/Demo.tsx`; the numbers in the last scene are copied from the table above.
+The video cuts the clip at fixed times in `video/src/clips.json`. Each segment starts 0.1 s after the
+cut where the tab changes. `npm run render` first runs `npm run check-clip`. It stops with an error if
+the clip's length differs from `durationSeconds` by more than 0.1 s, or if a segment start is not 0.05
+to 0.25 s after a cut.
+
+After re-recording, list the cuts from the repo root:
+
+```bash
+ffmpeg -i video/public/clips/session.mp4 -vf "select='gt(scene,0.01)',showinfo" -f null - 2>&1 | grep -o 'pts_time:[0-9.]*'
+```
+
+Some cuts are not tab changes: `y` on the Chart segment, Down and Enter on the Watchlist segment, and
+`q` at the end. Set each start to its tab-change cut + 0.1 s and `durationSeconds` to the clip's length.
+`video/src/clips.ts` gives the full procedure. The captions are in `video/src/Demo.tsx`; the numbers in
+the last scene are copied from the table above.
 
 ## Data and limits
 
