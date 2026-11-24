@@ -87,7 +87,17 @@ def overview_tab(snap: dict) -> Widget:
 
 TABS.append(("Overview", overview_tab))
 
-SHOWN_SESSIONS = 120  # candles drawn: about five months, one or two to a terminal column
+YEAR = 250  # sessions in the snapshot: about one year
+MIN_SHOWN = 60
+AXIS_COLUMNS = 10  # panel columns taken by the y-axis labels and the frame
+
+
+def window_size(width: int, available: int, full: bool) -> int:
+    """Sessions to draw: all of them up to a year when `full`, else one candle per plot column
+    (never fewer than 60, never more than a year or than exist)."""
+    if full:
+        return min(YEAR, available)
+    return min(available, YEAR, max(MIN_SHOWN, width - AXIS_COLUMNS))
 
 
 def _rgb(hex_colour: str) -> tuple[int, int, int]:
@@ -130,10 +140,10 @@ def _short(date: str) -> str:
     return f"{day.day} {day:%b %y}"
 
 
-def candle_plot(idx: dict, n: int = SHOWN_SESSIONS) -> TokenPlot:
-    """NIFTY candles with the 20- and 50-day averages."""
-    plot = TokenPlot(id="candles")
+def draw_candles(plot: TokenPlot, idx: dict, n: int, span: str) -> None:
+    """NIFTY candles with the 20- and 50-day averages for the last `n` sessions."""
     plt = plot.plt
+    plt.clear_figure()
     dates = _tail(idx["dates"], n)
     x = list(range(len(dates)))
     data = {
@@ -157,14 +167,14 @@ def candle_plot(idx: dict, n: int = SHOWN_SESSIONS) -> TokenPlot:
     plt.xticks(pos, [_short(dates[i]) for i in pos])
     plt.yticks(*y_ticks(min(data["Low"]), max(data["High"])))
     plt.grid(False, False)
-    plt.title("NIFTY 50 daily candles, 20- and 50-day average")
-    return plot
+    plt.title(f"NIFTY 50 · {span}, with 20- and 50-day average")
+    plot.refresh()
 
 
-def value_plot(idx: dict, n: int = SHOWN_SESSIONS) -> TokenPlot:
+def draw_value(plot: TokenPlot, idx: dict, n: int) -> None:
     """Traded value of the 50 stocks, bars under the candles (its own axis: no second y-axis)."""
-    plot = TokenPlot(id="traded-value")
     plt = plot.plt
+    plt.clear_figure()
     dates = _tail(idx["dates"], n)
     value = _tail(idx["value_cr"], n)
     pts = [(i, v) for i, v in enumerate(value) if v is not None]
@@ -176,21 +186,45 @@ def value_plot(idx: dict, n: int = SHOWN_SESSIONS) -> TokenPlot:
     pos = tick_positions(len(dates))
     plt.xticks(pos, [_short(dates[i]) for i in pos])
     plt.title("Traded value of NIFTY 50 stocks (₹ cr)")
-    return plot
+    plot.refresh()
 
 
 class ChartPanel(Vertical):
-    """Builds its two plots the first time the tab is shown, not at startup."""
+    """Builds its two plots the first time the tab is shown, not at startup. The span is as many
+    sessions as fit the width (redrawn on resize); `y` toggles the whole year."""
 
     def __init__(self, idx: dict):
         super().__init__(id="chart")
         self._idx = idx
         self._built = False
+        self.full = False
+        self.shown = 0
+        self._drawn_full = False
 
     def on_show(self, event: events.Show) -> None:
         if not self._built:
             self._built = True
-            self.mount(candle_plot(self._idx), value_plot(self._idx))
+            self._candles = TokenPlot(id="candles")
+            self._value = TokenPlot(id="traded-value")
+            self.mount(self._candles, self._value)
+            self.redraw()
+
+    def on_resize(self, event: events.Resize) -> None:
+        if self._built:
+            self.redraw()
+
+    def toggle_year(self) -> None:
+        self.full = not self.full
+        if self._built:
+            self.redraw()
+
+    def redraw(self) -> None:
+        n = window_size(self.size.width, len(self._idx["dates"]), self.full)
+        if n == self.shown and self._drawn_full == self.full:
+            return
+        self.shown, self._drawn_full = n, self.full
+        draw_candles(self._candles, self._idx, n, "1 year" if self.full else f"last {n} sessions")
+        draw_value(self._value, self._idx, n)
 
 
 def chart_tab(snap: dict) -> Widget:

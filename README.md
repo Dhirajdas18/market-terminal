@@ -53,11 +53,13 @@ high of the 365 calendar days to the session date.
 
 ## Chart tab
 
-<img src="docs/img/app_chart.svg" alt="The Chart tab: NIFTY 50 candles for the last 120 sessions with a 20-day and a 50-day average, and bars of the traded value of the 50 stocks below" width="720">
+<img src="docs/img/app_chart.svg" alt="The Chart tab: NIFTY 50 candles for as many recent sessions as fit the width, with a 20-day and a 50-day average, and bars of the traded value of the 50 stocks below" width="720">
 
-Screenshot from synthetic numbers (the test fixture), not market data. The candles are the last 120
-sessions with a NIFTY bar; the averages are computed on the whole history and then cut, so the first
-candle already has one. Green is a close above the open. The bars below are not NIFTY's own volume:
+Screenshot from synthetic numbers (the test fixture), not market data. The candles are the most recent
+sessions that fit the terminal width, one candle per column (at least 60, at most 250), redrawn on
+resize; the title says how many ("last 108 sessions" in the screenshot). `y` switches to the whole year (250 sessions,
+candles may be squeezed) and back. The averages are computed on the whole history and then cut, so the
+first candle already has one. Green is a close above the open. The bars below are not NIFTY's own volume:
 Yahoo's `^NSEI` volume has no documented meaning, so they show the 50 stocks' traded value (close ×
 volume, summed, in ₹ crore). The two plots have separate y-axes and are drawn only when the tab is
 first opened.

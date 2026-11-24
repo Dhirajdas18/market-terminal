@@ -361,3 +361,50 @@ def test_movers_symbol_is_not_markup():
             return str(app.query_one("#gainers", DataTable).get_row_at(0)[0])
 
     assert asyncio.run(run()) == "[bold]X[/]"
+
+
+def test_window_fits_the_width_and_year_shows_250():
+    assert widgets.window_size(120, 250, full=False) == 110  # one candle per plot column
+    assert widgets.window_size(400, 250, full=False) == 250  # capped at a year
+    assert widgets.window_size(40, 250, full=False) == 60  # never fewer than 60
+    assert widgets.window_size(120, 90, full=False) == 90  # only what exists
+    assert widgets.window_size(120, 250, full=True) == 250
+
+
+def _shown(width: int, presses: tuple[str, ...] = ()):
+    app = TerminalApp(SNAP, None)
+
+    async def run():
+        async with app.run_test(size=(width, 36)) as pilot:
+            _open_tab(app, "Chart")
+            await pilot.pause()
+            await pilot.pause()
+            counts = [app.query_one(widgets.ChartPanel).shown]
+            for key in presses:
+                await pilot.press(key)
+                await pilot.pause()
+                counts.append(app.query_one(widgets.ChartPanel).shown)
+            titles = [p.plt.build() for p in app.query(widgets.TokenPlot)]
+            return counts, titles
+
+    return asyncio.run(run())
+
+
+def test_y_toggles_between_width_fitted_and_year():
+    (fit, year, back), _ = _shown(120, ("y", "y"))
+    assert fit == widgets.window_size(120, 130, full=False) and fit < 130
+    assert year == 130  # the fixture has 130 sessions; the cap is 250
+    assert back == fit
+
+
+def test_wider_terminal_shows_more_sessions():
+    (narrow,), _ = _shown(90)
+    (wide,), _ = _shown(120)
+    assert narrow < wide
+
+
+def test_chart_title_states_the_span():
+    (_, _), titles = _shown(120, ("y",))
+    assert "NIFTY 50 · 1 year" in titles[0]
+    (fit,), titles = _shown(120)
+    assert f"NIFTY 50 · last {fit} sessions" in titles[0]

@@ -46,6 +46,7 @@ class TerminalApp(App):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh_data", "Refresh"),
+        Binding("y", "toggle_year", "Chart: 1 year"),
     ]
 
     def __init__(
@@ -80,6 +81,10 @@ class TerminalApp(App):
             for title, make in widgets.TABS:
                 with TabPane(title, id=_pane_id(title)):
                     yield make(self.snapshot)
+
+    def action_toggle_year(self) -> None:
+        for panel in self.query(widgets.ChartPanel):
+            panel.toggle_year()
 
     @property
     def refreshing(self) -> bool:
