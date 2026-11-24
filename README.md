@@ -2,13 +2,16 @@
 
 [![CI](https://github.com/Dhirajdas18/market-terminal/actions/workflows/ci.yml/badge.svg)](https://github.com/Dhirajdas18/market-terminal/actions/workflows/ci.yml)
 
+<a href="docs/img/demo.mp4"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/screen-overview.png"><img src="docs/img/demo.gif" alt="The app opening on the demo data and stepping through the Overview, Chart (with y for the whole year), Movers, Breadth, Sectors and Watchlist tabs, opening a stock from the Watchlist, Escape back and q to quit" width="100%"></picture></a>
+
 A small terminal app to open after the NSE close and review the day: today's NIFTY 50 plus a few
 reference series (NIFTY Bank, India VIX, USD/INR, gold, S&P 500), end-of-day bars from Yahoo Finance kept
 in a local cache. It runs only while open: no background jobs, no polling, network only at launch and on
 `r`.
 
-Screenshots use synthetic demo data (`tests/fixtures/snapshot.json`), not market data. Click one for the
-full-size image. Regenerate them all with `vhs docs/screens.tape`. `uv run mt --demo tests/fixtures/snapshot.json` opens
+The demo and the screenshots use synthetic data (`tests/fixtures/snapshot.json`), not market data. Click the
+demo for the video, a screenshot for the full-size image. Regenerate them with `vhs docs/demo.tape` and
+`vhs docs/screens.tape`. `uv run mt --demo tests/fixtures/snapshot.json` opens
 the app on that file with no network and refresh off.
 
 ## Features
@@ -27,6 +30,9 @@ the app on that file with no network and refresh off.
 - [x] Watchlist tab and stock view: a saved list of NIFTY 50 stocks with close, day, 1-month and 1-year change,
   volatility and beta; Enter on any stock (Movers, Sectors, Watchlist) opens candles with the 20- and 50-day
   averages, beta, volatility, max drawdown and the one-day loss on ₹1,00,000 at 95%
+- [x] Whole app: opens on the cache and updates in the background, keeps the cached data on screen when
+  the update fails, and once a day compares `docs/data/nifty50.csv` with NSE's published NIFTY 50 list
+  (a header notice names symbols added or dropped)
 
 ## Usage
 
@@ -42,18 +48,42 @@ uv run mt report stock     # the VaR check below
 uv run pytest
 ```
 
-Later launches open on the cached data in about 0.6 s (Apple Silicon Mac, script start to first screen with Textual's
-headless runner) and fetch the last week from Yahoo in the background; the header says "Updating…" until the
+Later launches open on the cached data in about 0.5 s (Apple Silicon Mac, start to first screen in a real terminal; see Running it) and fetch the last week from Yahoo in the background; the header says "Updating…" until the
 new data is in, or "Refresh failed: <error type>" with the cached data still on screen. Errors go to
 `~/.config/market-terminal/mt.log`.
 
 Keys: `r` refresh (runs in the background; the screen keeps the current data if it fails), `q` quit.
-`←`/`→` switch tabs; `↓` (or Tab) moves into a tab's stock table, Enter opens the highlighted stock and Escape
+`←`/`→` switch tabs; `y` on the Chart tab toggles between the width-fitted candles and the whole year; `↓` (or Tab) moves into a tab's stock table, Enter opens the highlighted stock and Escape
 returns. On the Watchlist tab `a` picks a stock to add and `d` removes the highlighted one. The watchlist is
 `~/.config/market-terminal/watchlist.json` (a JSON list of NIFTY 50 symbols; anything else in it is ignored).
 The header always states which day is shown, e.g. "Data for Mon 23 Nov 2026", names any stock
 whose bar for a newer day has not arrived, and lists stocks with no bar for 3 or more sessions as
 suspended.
+
+### Running it
+
+Measured on an Apple Silicon Mac, `mt` started in a real pseudo-terminal (200 × 50) on the warm cache
+(5,193 days, 336 columns, 10.1 MB), with `ps` sampled every 5 s for 60 s. How they were measured is in finding 7 below.
+
+| What | Measured |
+|---|---|
+| Start to first screen (cached data on screen) | 0.51 s |
+| First run, no cache: download from 2007 | 17.0 s, 10.1 MB parquet |
+| Later launch: background update of the last 7 days | 7.7 s |
+| Memory (RSS) at first screen / after the update | 205 MB / 308 MB |
+| CPU while idle, 10 s to 60 s after launch | 0.0% at every sample |
+| `q` to process exit | 0.32 s; `pgrep` finds nothing |
+
+## Data and limits
+
+- Prices are Yahoo Finance end-of-day bars: free, unofficial and sometimes wrong (finding 1 lists the
+  errors found and `docs/data/yahoo_fixes.csv` the ones repaired). The app is meant for after the close;
+  it has no intraday prices.
+- The 50 stocks are today's NIFTY 50 applied to past years, so every historical number is
+  survivorship-biased.
+- The header always says which day is shown; on a holiday, with a late bar or with a suspended stock it
+  shows the last complete session and names what is missing.
+- The demo and the screenshots are synthetic data, not market prices. Nothing here is investment advice.
 
 ## Overview tab
 
@@ -295,6 +325,24 @@ for that day or the next.
 - **Sample:** the 50 are today's members applied to past years (survivorship-biased);
   `mt report stock` prints every number above.
 
+### 7. Launch to first screen takes 0.51 s on the cached data and 17.0 s on the first run; the app uses 205 MB at open and 308 MB after the update, and no process is left 0.32 s after `q`
+
+Measured once on the Apple Silicon Mac above, in a real pseudo-terminal, on the real warm cache (not the
+demo data), by a script that started `mt`, timed the first "Data for" text, ran `ps -o rss,%cpu` every 5 s for
+60 s, sent `q` and then ran `pgrep`.
+
+- **First screen:** 0.51 s from start to the header line. The first run, with no cache, downloads 2007
+  onwards in 17.0 s (a 10.1 MB parquet file); the app prints one line to stderr before it starts.
+- **Update:** the background update of the last 7 days finished within 10 s (7.7 s when timed alone). CPU
+  was 78% in the first second and 7.9% at 5 s, then 0.0% at each of the 11 samples from 10 s to 60 s.
+- **Memory:** 205 MB at the first screen, 262 MB at 5 s and 308 MB from 10 s to the end; the target was
+  under 200 MB and is missed at both points. Importing pandas and numpy brings the process to 95 MB, and reading
+  the three years of cache the screens need adds about 50 MB.
+- **After `q`:** the process exited after 0.32 s and `pgrep` found no `mt` process. No file other than the
+  cache, the log, the watchlist and the daily membership stamp is written, all under `data/` and
+  `~/.config/market-terminal/`.
+- **Sample:** one machine, one run of 60 s; the numbers will differ on another Mac or with a different cache size.
+
 ## Design
 
 - `src/mt/data.py`: tickers, Yahoo download with retries (`DownloadFailed` names any missing ticker and
@@ -310,6 +358,8 @@ for that day or the next.
   and the rolling out-of-sample tracking test.
 - `src/mt/stock.py`: Blume beta, calendar-time volatility, drawdown, historical VaR, the per-stock row and
   candles in the snapshot, and the rolling VaR breach test.
+- `src/mt/membership.py`: the once-a-day comparison with NSE's NIFTY 50 list (HTTPS, 15 s timeout, 1 MB cap,
+  validated columns and symbols), run in the update thread.
 - `src/mt/watchlist.py`: the watchlist file: validated on load, atomic and owner-only on save.
 - `src/mt/snapshot.py`: one plain dict that every screen reads; schema in [docs/snapshot.md](docs/snapshot.md).
 - `src/mt/app.py`, `widgets.py`, `app.tcss`: the Textual app; colours from the chart tokens in `plots.py`.
