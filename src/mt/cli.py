@@ -1,6 +1,7 @@
 """Command line: `mt` opens the terminal app; `mt report <topic>` builds a topic's README charts."""
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
@@ -75,12 +76,31 @@ def run_app() -> int:
     return app.return_code or 0
 
 
+def run_demo(path: str) -> int:
+    """Open the app on a snapshot JSON file: no network, no cache, no refresh."""
+    from mt.app import TerminalApp
+
+    try:
+        snap = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(snap, dict) or "as_of" not in snap:
+            raise ValueError('not a snapshot (expected an object with "as_of")')
+    except (OSError, ValueError) as exc:  # missing/unreadable file, bad JSON (a ValueError)
+        print(f"Cannot open demo file {path}: {exc}", file=sys.stderr)
+        return 1
+    app = TerminalApp(snap, None, refresh_off_notice="Demo data \u2014 refresh off")
+    app.run()
+    return app.return_code or 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="mt", description="After-close NSE market terminal")
     sub = parser.add_subparsers(dest="cmd")
     rep = sub.add_parser("report", help="build a topic's charts and print its numbers")
     rep.add_argument("topic")
+    parser.add_argument("--demo", metavar="PATH", help="open the app on a snapshot JSON file")
     args = parser.parse_args(argv)
+    if args.demo:
+        return run_demo(args.demo)
     if args.cmd is None:
         setup_logging()
         return run_app()

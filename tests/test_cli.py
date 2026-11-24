@@ -1,4 +1,5 @@
 import stat
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -16,7 +17,7 @@ def _cache() -> pd.DataFrame:
 
 
 class Recorder:
-    def __init__(self, snapshot, refresh=None, update_on_mount=False):
+    def __init__(self, snapshot, refresh=None, update_on_mount=False, **kw):
         Recorder.args = (snapshot, refresh, update_on_mount)
         self.return_code = 0
 
@@ -74,3 +75,53 @@ def test_log_file_is_private(tmp_path):
     path = cli.setup_logging(tmp_path / "cfg")
     assert stat.S_IMODE((tmp_path / "cfg").stat().st_mode) == 0o700
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+DEMO = "tests/fixtures/snapshot.json"
+
+
+def _no_network(monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("demo must not touch the network or the cache")
+
+    for name in ("update_cache", "load_cache", "save_cache"):
+        if hasattr(mt.data, name):
+            monkeypatch.setattr(mt.data, name, boom)
+    monkeypatch.setattr(cli, "refresh", boom)
+
+
+def test_demo_flag_opens_without_network(monkeypatch, recorder):
+    _no_network(monkeypatch)
+    assert cli.main(["--demo", DEMO]) == 0
+    snap, refresh, update_on_mount = recorder.args
+    assert snap["as_of_label"].startswith("Data for") and update_on_mount is False
+    assert refresh is None
+
+
+def test_demo_refresh_is_off(monkeypatch):
+    import asyncio
+    import json
+
+    from mt.app import TerminalApp
+
+    _no_network(monkeypatch)
+    snap = json.loads(Path(DEMO).read_text())
+
+    async def run():
+        app = TerminalApp(snap, None, refresh_off_notice="Demo data \u2014 refresh off")
+        async with app.run_test(size=(120, 36)) as pilot:
+            await pilot.press("r")
+            await pilot.pause()
+            return app.snapshot["notice"]
+
+    assert asyncio.run(run()) == "Demo data \u2014 refresh off"
+
+
+@pytest.mark.parametrize("content", [None, "{not json", "[1, 2]", "{}"])
+def test_demo_bad_file_exits_cleanly(tmp_path, capsys, recorder, content):
+    path = tmp_path / "d.json"
+    if content is not None:
+        path.write_text(content)
+    assert cli.main(["--demo", str(path)]) == 1
+    err = capsys.readouterr().err
+    assert "demo" in err.lower() and "Traceback" not in err

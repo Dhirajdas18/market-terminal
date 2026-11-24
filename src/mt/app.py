@@ -54,6 +54,7 @@ class TerminalApp(App):
         snapshot: dict,
         refresh: Callable[[], dict] | None = None,
         update_on_mount: bool = False,
+        refresh_off_notice: str = "Refresh is not available here.",
     ):
         """`refresh` downloads and returns a new snapshot (run in a thread worker). With
         `update_on_mount` the app shows `snapshot` (the cache) at once, then refreshes."""
@@ -62,6 +63,7 @@ class TerminalApp(App):
         self._refresh_fn = refresh
         self._update_on_mount = update_on_mount
         self._refreshing = False
+        self._refresh_off_notice = refresh_off_notice
 
     def on_mount(self) -> None:
         if self._update_on_mount and self._refresh_fn is not None:
@@ -111,7 +113,7 @@ class TerminalApp(App):
 
     def action_refresh_data(self) -> None:
         if self._refresh_fn is None:
-            self._set_notice("Refresh is not available here.")
+            self._set_notice(self._refresh_off_notice)
             return
         if self._refreshing:  # one download at a time: no second writer, no stale delivery
             return

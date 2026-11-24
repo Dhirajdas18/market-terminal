@@ -392,8 +392,8 @@ def _shown(width: int, presses: tuple[str, ...] = ()):
 
 def test_y_toggles_between_width_fitted_and_year():
     (fit, year, back), _ = _shown(120, ("y", "y"))
-    assert fit == widgets.window_size(120, 130, full=False) and fit < 130
-    assert year == 130  # the fixture has 130 sessions; the cap is 250
+    assert fit == widgets.window_size(120, 250, full=False) and fit < 250
+    assert year == 250  # the fixture has 250 sessions, the cap
     assert back == fit
 
 
@@ -408,3 +408,9 @@ def test_chart_title_states_the_span():
     assert "NIFTY 50 · 1 year" in titles[0]
     (fit,), titles = _shown(120)
     assert f"NIFTY 50 · last {fit} sessions" in titles[0]
+
+
+def test_span_label_never_claims_a_year_it_lacks():
+    assert widgets.span_label(250, 250, True) == "1 year"
+    assert widgets.span_label(130, 130, True) == "all 130 sessions"
+    assert widgets.span_label(100, 250, False) == "last 100 sessions"

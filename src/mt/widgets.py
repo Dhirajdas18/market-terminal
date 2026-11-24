@@ -100,6 +100,13 @@ def window_size(width: int, available: int, full: bool) -> int:
     return min(available, YEAR, max(MIN_SHOWN, width - AXIS_COLUMNS))
 
 
+def span_label(n: int, available: int, full: bool) -> str:
+    """Chart title span: say "1 year" only when a full year of sessions is shown."""
+    if not full:
+        return f"last {n} sessions"
+    return "1 year" if n >= YEAR else f"all {n} sessions"
+
+
 def _rgb(hex_colour: str) -> tuple[int, int, int]:
     return tuple(int(hex_colour[i : i + 2], 16) for i in (1, 3, 5))  # type: ignore[return-value]
 
@@ -223,7 +230,7 @@ class ChartPanel(Vertical):
         if n == self.shown and self._drawn_full == self.full:
             return
         self.shown, self._drawn_full = n, self.full
-        draw_candles(self._candles, self._idx, n, "1 year" if self.full else f"last {n} sessions")
+        draw_candles(self._candles, self._idx, n, span_label(n, len(self._idx["dates"]), self.full))
         draw_value(self._value, self._idx, n)
 
 

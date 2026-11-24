@@ -7,7 +7,9 @@ reference series (NIFTY Bank, India VIX, USD/INR, gold, S&P 500), end-of-day bar
 in a local cache. It runs only while open: no background jobs, no polling, network only at launch and on
 `r`.
 
-<img src="docs/img/app_header.svg" alt="The app's header showing Data for Mon 23 Nov 2026, last complete NSE session, with INFY and TCS named as having no bar yet" width="720">
+Screenshots use synthetic demo data (`tests/fixtures/snapshot.json`), not market data. Click one for the
+full-size image. Regenerate them all with `vhs docs/screens.tape`. `uv run mt --demo tests/fixtures/snapshot.json` opens
+the app on that file with no network and refresh off.
 
 ## Features
 
@@ -42,9 +44,9 @@ suspended.
 
 ## Overview tab
 
-<img src="docs/img/app_overview.svg" alt="The Overview tab: six tiles with last close, day, week and year-to-date change and a 52-week range bar; the S&P 500 tile says as of Fri 20 Nov" width="720">
+<a href="docs/img/screen-overview.png"><img src="docs/img/screen-overview.png" alt="The Overview tab under the header line Data for Mon 23 Nov 2026 (last complete NSE session, INFY and TCS named as having no bar yet): six tiles with last close, day, week and year-to-date change and a 52-week range bar; the S&amp;P 500 tile says as of Fri 20 Nov" width="100%"></a>
 
-Screenshot from synthetic numbers (the test fixture), not market data. Each tile uses its own series' last
+Each tile uses its own series' last
 valid close up to the session date. USD/INR and the S&P 500 trade on other calendars, so a tile whose
 last bar is older than the session date shows it ("as of Fri 20 Nov"). Day is the change from the
 previous valid close, week from the last close of the previous ISO week, year-to-date from the last
@@ -53,9 +55,11 @@ high of the 365 calendar days to the session date.
 
 ## Chart tab
 
-<img src="docs/img/app_chart.svg" alt="The Chart tab: NIFTY 50 candles for as many recent sessions as fit the width, with a 20-day and a 50-day average, and bars of the traded value of the 50 stocks below" width="720">
+<a href="docs/img/screen-chart.png"><img src="docs/img/screen-chart.png" alt="The Chart tab: NIFTY 50 candles for the last 115 sessions with a 20-day and a 50-day average, and bars of the traded value of the 50 stocks below" width="100%"></a>
 
-Screenshot from synthetic numbers (the test fixture), not market data. The candles are the most recent
+<a href="docs/img/screen-chart-year.png"><img src="docs/img/screen-chart-year.png" alt="The Chart tab after pressing y: all 250 sessions, titled 1 year" width="100%"></a>
+
+The candles are the most recent
 sessions that fit the terminal width, one candle per column (at least 60, at most 250), redrawn on
 resize; the title says how many ("last 108 sessions" in the screenshot). `y` switches to the whole year (250 sessions,
 candles may be squeezed) and back. The averages are computed on the whole history and then cut, so the
@@ -66,9 +70,9 @@ first opened.
 
 ## Movers tab
 
-<img src="docs/img/app_movers.svg" alt="The Movers tab: three tables with the five biggest gainers, the five biggest losers and the five stocks with the highest volume against their previous 20-day mean" width="720">
+<a href="docs/img/screen-movers.png"><img src="docs/img/screen-movers.png" alt="The Movers tab: three tables with the five biggest gainers, the five biggest losers and the five stocks with the highest volume against their previous 20-day mean" width="100%"></a>
 
-Synthetic numbers again. Day changes use adjusted closes with the known Yahoo errors from
+Day changes use adjusted closes with the known Yahoo errors from
 `docs/data/yahoo_fixes.csv` repaired. Unusual volume is today's volume divided by the mean of the
 previous 20 sessions (today left out; a day with no volume print counts as missing). A stock without
 a bar on the session date is left out of all three tables.
