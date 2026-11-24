@@ -35,6 +35,8 @@ def masthead(snap: dict) -> Text:
     if snap.get("suspended"):
         names = ", ".join(f"{s['symbol']} (last {s['last']})" for s in snap["suspended"])
         text.append(f"  ·  suspended: {names}", style=TEXT_2)
+    if snap.get("no_data"):
+        text.append(f"  ·  no Yahoo data: {', '.join(snap['no_data'])}", style=WARN)
     if snap.get("notice"):
         text.append(f"\n{snap['notice']}", style=WARN)
     return text

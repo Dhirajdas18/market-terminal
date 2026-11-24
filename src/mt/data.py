@@ -60,6 +60,7 @@ NSE_TICKERS = {f"{s}.NS": s for s in SYMBOLS} | {
 }
 OFF_CALENDAR = {"INR=X": "USDINR", "^GSPC": "SP500"}
 TICKERS = NSE_TICKERS | OFF_CALENDAR
+MAX_UNQUOTED = 5  # constituents an update may lack (renamed, merged, long halt) and still be kept
 
 
 class DownloadFailed(Exception):
@@ -103,14 +104,23 @@ def missing_symbols(table: pd.DataFrame, expected: list[str] | None = None) -> l
     return [s for s in want if s not in close.columns or close[s].isna().all()]
 
 
+def tolerable(missing: list[str]) -> bool:
+    """An update may go ahead without these symbols: at most MAX_UNQUOTED constituent stocks,
+    never an index or reference series (NIFTY, NIFTYBANK, INDIAVIX, GOLDBEES, USD/INR, S&P 500)."""
+    return 0 < len(missing) <= MAX_UNQUOTED and set(missing) <= set(SYMBOLS)
+
+
 def download(
     fetch: Callable[[], pd.DataFrame],
     find_missing: Callable[[pd.DataFrame], list[str]],
     attempts: int = 4,
+    tolerate: Callable[[list[str]], bool] | None = None,
 ) -> pd.DataFrame:
     """Call `fetch` until `find_missing` reports nothing absent; raise rather than keep a gap.
 
-    Yahoo occasionally drops a ticker or errors, so each download gets a few tries."""
+    Yahoo occasionally drops a ticker or errors, so each download gets a few tries. With
+    `tolerate`, a result is also accepted when the same tolerable symbols are absent on two tries
+    in a row (no longer quoted, not a chance drop)."""
     missing = ["everything"]
     for attempt in range(attempts):
         if attempt:
@@ -120,7 +130,11 @@ def download(
         except Exception as exc:  # network or Yahoo error: log it and retry
             log.warning("download attempt %d failed: %s: %s", attempt + 1, type(exc).__name__, exc)
             continue
-        if not (missing := find_missing(df)):
+        previous, missing = missing, find_missing(df)
+        if not missing:
+            return df
+        if tolerate is not None and missing == previous and tolerate(missing):
+            log.warning("Yahoo has no data for %s; keeping their cached bars", ", ".join(missing))
             return df
     raise DownloadFailed(missing)
 
@@ -165,13 +179,25 @@ def _write_atomic(table: pa.Table, path: Path) -> None:
         tmp_path.unlink(missing_ok=True)
 
 
-def _fresh_table(fetch: Callable[..., pd.DataFrame], start: str) -> pa.Table:
-    """Download from `start` and return it as an Arrow table (the pandas frame is dropped)."""
-    new = download(lambda: fetch(start), missing_symbols)
-    new = new.dropna(how="all").sort_index().sort_index(axis=1)
+def _fresh_table(
+    fetch: Callable[..., pd.DataFrame], start: str, cache: Path | None = None
+) -> tuple[pa.Table, list[str]]:
+    """Download from `start`; return it as an Arrow table (the pandas frame is dropped) and the
+    symbols Yahoo had no data for. Those are allowed only with a `cache` to update (see
+    `tolerable`): their columns keep the cached bars on the overlap days and are empty after."""
+    new = download(lambda: fetch(start), missing_symbols, tolerate=tolerable if cache else None)
+    unquoted = sorted(missing_symbols(new))
+    new = new.dropna(how="all").sort_index()
+    if unquoted:
+        fields = new.columns.get_level_values(0).unique()
+        new = new.reindex(columns=new.columns.union(pd.MultiIndex.from_product([fields, unquoted])))
+        old = pd.read_parquet(cache, filters=[("date", ">=", new.index.min())])
+        keep = [c for c in new.columns if c[1] in unquoted and c in old.columns]
+        new[keep] = old[keep].reindex(new.index)
+    new = new.sort_index(axis=1)
     new.columns.names = ["field", "symbol"]
     new.index.name = "date"
-    return pa.Table.from_pandas(new)
+    return pa.Table.from_pandas(new), unquoted
 
 
 def _first_date(table: pa.Table):
@@ -190,15 +216,17 @@ def update_cache(
     `overlap_days`, so revised bars replace the cached ones. The merge happens in Arrow (only the
     older rows are read, never a second full pandas copy), so the app's update path holds just the
     new rows and the returned tail. Raises DownloadFailed (cache untouched) if Yahoo leaves any
-    ticker out."""
+    ticker out, except that an update of an existing cache goes ahead without up to MAX_UNQUOTED
+    constituent stocks (`tolerable`); the returned table names them in
+    `attrs["no_yahoo_data"]`."""
     path = Path(path)
     last = _last_date(path)
     start = START if last is None else (last - pd.Timedelta(days=overlap_days)).strftime("%Y-%m-%d")
-    fresh = _fresh_table(fetch, start)
+    fresh, unquoted = _fresh_table(fetch, start, cache=path if last is not None else None)
     if last is not None and pq.read_schema(path).names != fresh.schema.names:
         # the ticker set changed (a NIFTY 50 rebalance): the old rows no longer fit, start over
         log.warning("cached columns differ from the current tickers: downloading everything again")
-        last, fresh = None, _fresh_table(fetch, START)
+        last, (fresh, unquoted) = None, _fresh_table(fetch, START)
     if last is None:
         merged = fresh
     else:
@@ -209,7 +237,9 @@ def update_cache(
     _write_atomic(merged, path)
     del merged
     pa.default_memory_pool().release_unused()
-    return load_cache(path, since=since)
+    table = load_cache(path, since=since)
+    table.attrs["no_yahoo_data"] = unquoted
+    return table
 
 
 def flag_adjusted_drops(

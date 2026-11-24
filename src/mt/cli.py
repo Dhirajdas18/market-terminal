@@ -23,7 +23,7 @@ def now_ist() -> pd.Timestamp:
     return pd.Timestamp.now(tz="Asia/Kolkata")
 
 
-def snapshot_from(table: pd.DataFrame) -> dict:
+def snapshot_from(table: pd.DataFrame, no_data: list[str] = ()) -> dict:
     from mt import (  # noqa: F401 - importing registers their sections
         breadth,
         candles,
@@ -34,13 +34,14 @@ def snapshot_from(table: pd.DataFrame) -> dict:
     )
 
     table = table.loc[table.index.max() - HISTORY :]
-    return snapshot.build(table, now_ist())
+    return snapshot.build(table, now_ist(), no_data)
 
 
 def _download() -> dict:
     from mt.data import update_cache
 
-    return snapshot_from(update_cache(since=_since()))
+    table = update_cache(since=_since())
+    return snapshot_from(table, table.attrs.get("no_yahoo_data", []))
 
 
 def refresh() -> dict:

@@ -23,8 +23,9 @@ def label(day: pd.Timestamp) -> str:
     return f"Data for {day:%a} {day.day} {day:%b %Y}"
 
 
-def build(table: pd.DataFrame, now_ist: pd.Timestamp) -> dict:
-    as_of, missing, suspended = session_info(table["close"], now_ist)
+def build(table: pd.DataFrame, now_ist: pd.Timestamp, no_data: list[str] = ()) -> dict:
+    """`no_data`: constituents the last update had no Yahoo data for (their cached bars stay)."""
+    as_of, missing, suspended = session_info(table["close"], now_ist, ignore=list(no_data))
     trimmed = trim(table, as_of)
     snap: dict[str, Any] = {
         "as_of": f"{as_of:%Y-%m-%d}",
@@ -32,6 +33,7 @@ def build(table: pd.DataFrame, now_ist: pd.Timestamp) -> dict:
         "stale": bool(as_of.normalize() < _naive_ist(now_ist).normalize()),
         "missing": missing,
         "suspended": [{"symbol": sym, "last": f"{day:%Y-%m-%d}"} for sym, day in suspended],
+        "no_data": sorted(no_data),
         "notice": None,
     }
     for key, fn in SECTIONS:

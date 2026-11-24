@@ -1022,3 +1022,13 @@ def test_refresh_finishing_behind_the_command_palette_is_shown_when_it_closes():
     masthead, depth = _refresh_behind(lambda app: app.action_command_palette())
     assert depth == 1
     assert "Tue 24 Nov 2026" in masthead and "Updating" not in masthead
+
+
+def test_header_names_constituents_yahoo_no_longer_quotes():
+    app = TerminalApp({**SNAP, "no_data": ["TCS", "M&M"]}, None)
+
+    async def run():
+        async with app.run_test(size=(120, 36)):
+            return _masthead(app)
+
+    assert "no Yahoo data: TCS, M&M" in asyncio.run(run())

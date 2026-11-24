@@ -14,6 +14,7 @@ day.
 | `stale` | bool | `as_of` is earlier than today's date in IST (holiday, weekend, before 16:00 IST, or a late bar) |
 | `missing` | list of symbols | NSE symbols without a bar on the newest date some other NSE symbol has |
 | `suspended` | list of `{"symbol", "last"}` | NSE symbols whose last bar is 3 or more sessions behind the newest date (halted or no longer quoted); they no longer hold the session back |
+| `no_data` | list of symbols | constituents the last update had no Yahoo data for (renamed, merged or a long halt; at most 5, never an index or reference series): their cached bars are kept, they never hold the session back, and the header names them. More than 5, or any index/reference series, fails the update instead |
 | `notice` | string or `null` | message for the header, e.g. `"Refresh failed: …"` |
 
 Session rules (`mt.session.session_date`):

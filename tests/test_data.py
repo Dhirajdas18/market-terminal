@@ -208,3 +208,51 @@ def test_matching_columns_keep_the_incremental_path(tmp_path):
     fetch = FakeFetch(end="2026-11-23")
     update_cache(path, fetch=fetch, since=pd.Timestamp("2026-11-01"))
     assert fetch.calls == ["2026-11-13"]
+
+
+# --- a few constituents Yahoo no longer quotes (renamed, merged, long halt) ---
+
+
+def test_up_to_five_unquoted_constituents_keep_their_cached_history(tmp_path):
+    path = tmp_path / "p.parquet"
+    update_cache(path, fetch=FakeFetch(end="2026-11-20", value=100.0))
+    gone = ["TCS", "INFY", "TITAN", "ITC", "SBIN"]
+    fetch = FakeFetch(end="2026-11-23", value=101.0, drop=gone)
+    table = update_cache(path, fetch=fetch)
+    assert table.attrs["no_yahoo_data"] == sorted(gone)
+    close = load_cache(path)["close"]
+    assert close["TCS"].loc["2026-11-13":"2026-11-20"].eq(100.0).all()  # cached overlap kept
+    assert close["TCS"].loc["2026-11-23":].isna().all()
+    assert close["NIFTY"].loc["2026-11-13":].eq(101.0).all()
+    assert len(fetch.calls) == 2  # one retry in case Yahoo dropped them by chance
+
+
+def test_six_unquoted_constituents_still_fail_and_leave_the_cache(tmp_path):
+    path = tmp_path / "p.parquet"
+    update_cache(path, fetch=FakeFetch(end="2026-11-20"))
+    before = load_cache(path)
+    gone = ["TCS", "INFY", "TITAN", "ITC", "SBIN", "HDFCBANK"]
+    with pytest.raises(DownloadFailed):
+        update_cache(path, fetch=FakeFetch(end="2026-11-23", drop=gone))
+    assert load_cache(path).equals(before)
+
+
+@pytest.mark.parametrize(
+    "series", ["NIFTY", "NIFTYBANK", "INDIAVIX", "GOLDBEES", "USDINR", "SP500"]
+)
+def test_a_missing_index_or_reference_series_still_fails(tmp_path, series):
+    path = tmp_path / "p.parquet"
+    update_cache(path, fetch=FakeFetch(end="2026-11-20"))
+    with pytest.raises(DownloadFailed) as err:
+        update_cache(path, fetch=FakeFetch(end="2026-11-23", drop=[series]))
+    assert err.value.missing == [series]
+
+
+def test_first_run_never_accepts_an_unquoted_constituent(tmp_path):
+    with pytest.raises(DownloadFailed):
+        update_cache(tmp_path / "p.parquet", fetch=FakeFetch(drop=["TCS"]))
+
+
+def test_full_download_reports_no_unquoted_symbols(tmp_path):
+    table = update_cache(tmp_path / "p.parquet", fetch=FakeFetch())
+    assert table.attrs["no_yahoo_data"] == []

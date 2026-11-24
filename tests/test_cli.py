@@ -305,3 +305,30 @@ def test_unwritable_stamp_dir_still_delivers_the_snapshot(monkeypatch, tmp_path)
         assert cli.refresh()["as_of"] == "2026-11-23"
     finally:
         ro.chmod(0o700)
+
+
+def test_refresh_without_some_constituents_names_them_and_still_checks_membership(monkeypatch):
+    import mt.membership
+
+    def partial(since=None):
+        table = _cache()
+        table.loc["2026-11-23", ("close", "TCS")] = float("nan")  # Yahoo no longer quotes TCS
+        table.loc["2026-11-23", ("adj_close", "TCS")] = float("nan")
+        table.attrs["no_yahoo_data"] = ["TCS"]
+        return table
+
+    checked = []
+    monkeypatch.setattr(cli, "now_ist", lambda: pd.Timestamp("2026-11-24 20:00", tz="Asia/Kolkata"))
+    monkeypatch.setattr(mt.data, "update_cache", partial)
+    monkeypatch.setattr(
+        mt.membership, "check", lambda committed, fetch, *a, **k: checked.append(1) or "banner"
+    )
+    snap = cli.refresh()
+    assert snap["no_data"] == ["TCS"] and checked == [1] and snap["notice"] == "banner"
+    assert snap["as_of"] == "2026-11-23" and snap["missing"] == []  # TCS does not hold it back
+
+
+def test_full_refresh_has_an_empty_no_data_list(monkeypatch):
+    _fresh(monkeypatch)
+    monkeypatch.setattr(mt.membership, "check", lambda *a, **k: None)
+    assert cli.refresh()["no_data"] == []

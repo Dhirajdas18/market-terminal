@@ -36,16 +36,17 @@ SUSPENDED_AFTER = 3  # sessions without a bar before a stock stops holding the d
 
 
 def session_info(
-    close: pd.DataFrame, now_ist: pd.Timestamp
+    close: pd.DataFrame, now_ist: pd.Timestamp, ignore: list[str] = ()
 ) -> tuple[pd.Timestamp, list[str], list[tuple[str, pd.Timestamp]]]:
     """(session date, NSE symbols with a late bar, suspended (symbol, last bar date)).
 
     `close` is a date x symbol frame. Off-calendar series (USD/INR, S&P 500) are ignored. A symbol
     one or two sessions behind the newest date is late and holds the date back; one at least
     SUSPENDED_AFTER sessions behind is suspended (halted, or no longer quoted) and does not.
-    Sessions are `sessions(close)`: the dates most NSE series trade on."""
+    Sessions are `sessions(close)`: the dates most NSE series trade on. Symbols in `ignore`
+    (Yahoo no longer quotes them) never hold the date back and are in neither list."""
     now = _naive_ist(now_ist)
-    nse = close.drop(columns=list(OFF_CALENDAR.values()), errors="ignore")
+    nse = close.drop(columns=[*OFF_CALENDAR.values(), *ignore], errors="ignore")
     if now.hour < CLOSE_HOUR:
         nse = nse.loc[nse.index.normalize() < now.normalize()]
     nse = sessions(nse.dropna(axis=1, how="all"))
