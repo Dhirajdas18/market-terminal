@@ -82,6 +82,9 @@ class TerminalApp(App):
         return watchlist.validate(seed, list(self.snapshot.get("stocks") or {}))
 
     def on_mount(self) -> None:
+        # Any screen on top (stock view, add-stock picker, ^p palette) defers a finished refresh;
+        # it is drawn when the main screen is active again.
+        self.screen_change_signal.subscribe(self, self._screen_changed)
         if self._update_on_mount and self._refresh_fn is not None:
             self.action_refresh_data()
 
@@ -144,10 +147,12 @@ class TerminalApp(App):
             self.push_screen(widgets.StockScreen(str(event.row_key.value)))
 
     def close_stock(self) -> None:
-        """Leave the stock view; if a refresh finished meanwhile, redraw the tabs with it."""
+        """Leave the stock view (a refresh that finished meanwhile is drawn by _screen_changed)."""
         if len(self.screen_stack) > 1:
             self.pop_screen()
-        if self._ui_stale:
+
+    def _screen_changed(self, screen) -> None:
+        if self._ui_stale and screen is self.screen_stack[0]:
             self._ui_stale = False
             self.call_later(self._recompose_tabs)
 
@@ -213,7 +218,7 @@ class TerminalApp(App):
     async def _show(self, snap: dict) -> None:
         self._refreshing = False
         self.snapshot = snap
-        if len(self.screen_stack) > 1:  # the stock view is open: redraw the tabs when it closes
+        if len(self.screen_stack) > 1:  # another screen is on top: redraw when the main one is back
             self._ui_stale = True
             return
         await self._recompose_tabs()

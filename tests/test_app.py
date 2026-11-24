@@ -983,3 +983,42 @@ def test_candles_tolerate_a_new_listing_with_no_averages():
     }
     widgets.draw_candles(P(), idx, n, "last 5 sessions", "NEWCO")
     assert seen == []
+
+
+def _refresh_behind(push) -> tuple[str, int]:
+    """Start a slow refresh, open another screen with `push(app)`, let the refresh finish behind
+    it, close that screen; return the masthead and the stack depth afterwards."""
+    new = {**SNAP, "as_of_label": "Data for Tue 24 Nov 2026"}
+
+    def slow():
+        time.sleep(0.3)
+        return new
+
+    app = TerminalApp(SNAP, slow, watchlist_path=None)
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            await pilot.press("r")
+            await pilot.pause()
+            push(app)
+            await pilot.pause()
+            await _settled(app, pilot)
+            await pilot.pause(0.1)
+            await pilot.press("escape")
+            await pilot.pause()
+            await pilot.pause()
+            return _masthead(app), len(app.screen_stack)
+
+    return asyncio.run(run())
+
+
+def test_refresh_finishing_behind_the_add_stock_picker_is_shown_when_it_closes():
+    masthead, depth = _refresh_behind(lambda app: app.push_screen(widgets.PickStock([])))
+    assert depth == 1
+    assert "Tue 24 Nov 2026" in masthead and "Updating" not in masthead
+
+
+def test_refresh_finishing_behind_the_command_palette_is_shown_when_it_closes():
+    masthead, depth = _refresh_behind(lambda app: app.action_command_palette())
+    assert depth == 1
+    assert "Tue 24 Nov 2026" in masthead and "Updating" not in masthead
