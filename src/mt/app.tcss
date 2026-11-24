@@ -1,0 +1,35 @@
+/* Colours are the dark column of mt.plots (the README chart tokens), so the app and charts match. */
+$mt-surface: #1a1a19;
+$mt-raised: #242422;
+$mt-text: #f0efec;
+$mt-text-2: #c3c2b7;
+$mt-grid: #2e2d2b;
+$mt-accent: #3987e5;
+$mt-warn: #c98500;
+$mt-down: #e66767;
+
+Screen {
+    background: $mt-surface;
+    color: $mt-text;
+}
+
+#masthead {
+    height: auto;
+    padding: 0 1;
+    background: $mt-raised;
+    color: $mt-text;
+    border-bottom: solid $mt-grid;
+}
+
+#body {
+    height: 1fr;
+}
+
+#empty {
+    padding: 1 2;
+    color: $mt-text-2;
+}
+
+Footer {
+    background: $mt-raised;
+}
