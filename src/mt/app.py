@@ -21,6 +21,10 @@ TEXT_2 = "#c3c2b7"
 WARN = "#c98500"
 
 
+def _pane_id(title: str) -> str:
+    return "tab-" + "".join(c if c.isalnum() else "-" for c in title.lower())
+
+
 def masthead(snap: dict) -> Text:
     """Header line as plain Text: symbols and notices come from outside the repo, never markup."""
     text = Text(snap["as_of_label"], style="bold")
@@ -74,7 +78,7 @@ class TerminalApp(App):
             return
         with TabbedContent():
             for title, make in widgets.TABS:
-                with TabPane(title):
+                with TabPane(title, id=_pane_id(title)):
                     yield make(self.snapshot)
 
     @property
@@ -85,7 +89,12 @@ class TerminalApp(App):
     async def _show(self, snap: dict) -> None:
         self._refreshing = False
         self.snapshot = snap
+        tabs = self.query(TabbedContent)
+        keep = tabs.first().active if tabs else None
         await self.recompose()
+        tabs = self.query(TabbedContent)
+        if keep and tabs and tabs.first().active != keep:
+            tabs.first().active = keep
 
     def _failed(self, label: str) -> None:
         self._refreshing = False

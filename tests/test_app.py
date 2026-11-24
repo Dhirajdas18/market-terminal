@@ -6,6 +6,7 @@ from pathlib import Path
 
 from textual.widgets import Static
 
+from mt import widgets
 from mt.app import TerminalApp
 from mt.data import DownloadFailed
 
@@ -183,3 +184,66 @@ def test_r_during_a_refresh_does_not_start_another():
     text = asyncio.run(run())
     assert len(calls) == 1
     assert "Data for Tue 24 Nov 2026" in text and "Updating…" not in text
+
+
+def _tile_text(app: TerminalApp) -> str:
+    return " ".join(str(w.content) for w in app.query(".tile"))
+
+
+def test_overview_tab(snap_compare):
+    assert snap_compare(TerminalApp(SNAP, None), terminal_size=(120, 36))
+
+
+def test_overview_tiles_show_values_signs_and_own_date():
+    app = TerminalApp(SNAP, None)
+
+    async def run():
+        async with app.run_test(size=(120, 36)):
+            return [str(w.content) for w in app.query(".tile")]
+
+    tiles = asyncio.run(run())
+    assert len(tiles) == 6
+    joined = "\n".join(tiles)
+    assert "+0.62%" in joined and "−3.82%" in joined and "24,500.00" in joined
+    sp = next(t for t in tiles if "S&P 500" in t)
+    assert "Fri 20 Nov" in sp
+    assert "Fri 20 Nov" not in next(t for t in tiles if "NIFTY 50" in t)
+
+
+def test_external_name_in_overview_is_not_markup():
+    snap = {**SNAP, "overview": [{**SNAP["overview"][0], "name": "[bold]X[/]"}]}
+    app = TerminalApp(snap, None)
+
+    async def run():
+        async with app.run_test(size=(120, 36)):
+            return [w.content for w in app.query(".tile")]
+
+    (tile,) = asyncio.run(run())
+    assert "[bold]X[/]" in tile.plain
+
+
+def test_refresh_keeps_the_selected_tab(monkeypatch):
+    from textual.widgets import TabbedContent
+
+    monkeypatch.setattr(
+        widgets, "TABS", [*widgets.TABS, ("Second", lambda snap: Static("second panel"))]
+    )
+    new = {**SNAP, "as_of": "2026-11-24", "as_of_label": "Data for Tue 24 Nov 2026",
+           "missing": [], "stale": False}
+    app = TerminalApp(SNAP, lambda: new)
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            tabs = app.query_one(TabbedContent)
+            first = tabs.active
+            tabs.active = [p.id for p in tabs.query("TabPane")][1]
+            await pilot.pause()
+            chosen = tabs.active
+            await pilot.press("r")
+            await _settled(app, pilot)
+            await pilot.pause()
+            return first, chosen, app.query_one(TabbedContent).active, _masthead(app)
+
+    first, chosen, after, text = asyncio.run(run())
+    assert chosen != first and after == chosen
+    assert "Data for Tue 24 Nov 2026" in text

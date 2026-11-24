@@ -14,6 +14,8 @@ in a local cache. It runs only while open: no background jobs, no polling, netwo
 - [x] Data pipeline: Yahoo end-of-day bars since 2007 in a local parquet cache, updated incrementally;
   session date that handles NSE holidays, late bars and the 16:00 IST cut-off; snapshot schema; app
   skeleton with refresh and quit
+- [x] Overview tab: NIFTY 50, NIFTY Bank, India VIX, USD/INR, gold and the S&P 500 with last close, day, week
+  and year-to-date change and the position inside the 52-week range
 
 ## Usage
 
@@ -21,6 +23,7 @@ in a local cache. It runs only while open: no background jobs, no polling, netwo
 uv sync
 uv run mt                  # first run downloads 2007 onwards (~20 s) before opening
 uv run mt report data      # README chart -> out/, numbers printed
+uv run mt report overview  # the S&P 500 check below
 uv run pytest
 ```
 
@@ -33,6 +36,17 @@ Keys: `r` refresh (runs in the background; the screen keeps the current data if 
 The header always states which day is shown, e.g. "Data for Mon 23 Nov 2026", names any stock
 whose bar for a newer day has not arrived, and lists stocks with no bar for 3 or more sessions as
 suspended.
+
+## Overview tab
+
+<img src="docs/img/app_overview.svg" alt="The Overview tab: six tiles with last close, day, week and year-to-date change and a 52-week range bar; the S&P 500 tile says as of Fri 20 Nov" width="720">
+
+Screenshot from synthetic numbers (the test fixture), not market data. Each tile uses its own series' last
+valid close up to the session date. USD/INR and the S&P 500 trade on other calendars, so a tile whose
+last bar is older than the session date shows it ("as of Fri 20 Nov"). Day is the change from the
+previous valid close, week from the last close of the previous ISO week, year-to-date from the last
+close of the previous calendar year; the bar places the last close between the lowest low and highest
+high of the 365 calendar days to the session date.
 
 ## Findings
 
@@ -62,6 +76,22 @@ Weekdays from 2008 to 2025 with no `^NSEI` close on Yahoo, split by whether any 
   None of the 12 has a split or bonus on Yahoo's corporate-action list, and none returned to the
   previous price the next day.
 
+### 2. NIFTY's day return correlates 0.265 with the previous US session's S&P 500 return and 0.260 with the S&P return dated the same day (t 17.4 and 17.0)
+
+<a href="docs/img/overview_sp500.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/overview_sp500.png"><img src="docs/img/overview_sp500.gif" alt="Grouped bars per year from 2010 to 2026: correlation of NIFTY's day return with the previous US session's S&P 500 return and with the S&P 500 return on the same date" width="720"></picture></a>
+
+NSE sessions from 2010 to 23 Nov 2026 on which both S&P comparisons exist (4,010 days). For an NSE date the
+"previous US session" is the last S&P 500 date strictly before it, so a Monday pairs with the
+previous Friday. NIFTY's return is vs its own previous NSE session; a missing NIFTY bar gives no return
+for that day or the next.
+
+- **Whole period:** 0.265 (t 17.4) against the previous US session, 0.260 (t 17.0) against the same
+  date. The two are not distinguishable at this sample size.
+- **By year:** the previous session is higher in 8 of 17 years (2011, 2014, 2017, 2018, 2022, 2023,
+  2025 and 2026, the last to 23 Nov), the same date in the other 9. Yearly values run from 0.00 to 0.40.
+- The S&P 500 tile therefore carries its own date because it is on another calendar, not because the
+  previous session fits NIFTY's day better.
+
 ## Design
 
 - `src/mt/data.py`: tickers, Yahoo download with retries (`DownloadFailed` names any missing ticker and
@@ -69,6 +99,7 @@ Weekdays from 2008 to 2025 with no `^NSEI` close on Yahoo, split by whether any 
   load with a date filter, daily returns with known Yahoo errors repaired from
   `docs/data/yahoo_fixes.csv`.
 - `src/mt/session.py`: which trading day to show.
+- `src/mt/overview.py`: day / week / year-to-date change and 52-week position per series.
 - `src/mt/snapshot.py`: one plain dict that every screen reads; schema in [docs/snapshot.md](docs/snapshot.md).
 - `src/mt/app.py`, `widgets.py`, `app.tcss`: the Textual app; colours from the chart tokens in `plots.py`.
 - `src/mt/reports.py`: README findings, reproducible with `mt report <topic>`.

@@ -18,7 +18,7 @@ def now_ist() -> pd.Timestamp:
 
 
 def snapshot_from(table: pd.DataFrame) -> dict:
-    from mt import snapshot
+    from mt import overview, snapshot  # noqa: F401 - importing overview registers its section
 
     table = table.loc[table.index.max() - HISTORY :]
     return snapshot.build(table, now_ist())

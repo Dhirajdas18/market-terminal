@@ -29,3 +29,22 @@ Session rules (`mt.session.session_date`):
 ## Sections
 
 Later sections are added to `mt.snapshot.SECTIONS` as `(key, fn(table))` and documented here.
+
+### `overview`
+
+List of six rows in this order: `NIFTY`, `NIFTYBANK`, `INDIAVIX`, `USDINR`, `GOLDBEES`, `SP500`
+(`mt.overview.section`; a series missing from the table is left out).
+
+| key | type | meaning |
+|---|---|---|
+| `name` | string | series key |
+| `date` | `"YYYY-MM-DD"` | the series' own last valid bar on or before `as_of` (earlier than `as_of` for USD/INR or the S&P 500 when their calendar has no bar that day) |
+| `close` | float | close on `date` |
+| `day` | float or `null` | `close` / previous valid close − 1 |
+| `week` | float or `null` | `close` / last close of the previous ISO week − 1 |
+| `ytd` | float or `null` | `close` / last close of the previous calendar year − 1 |
+| `low52`, `high52` | float or `null` | lowest low and highest high over the 365 calendar days to `as_of` (close, if the table has no high/low) |
+| `pos52` | float or `null` | `(close − low52) / (high52 − low52)`, 0 at the low and 1 at the high |
+
+The overview tab shows the date under a tile only when it differs from `as_of`. Refreshing keeps the
+selected tab.

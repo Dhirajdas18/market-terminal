@@ -33,3 +33,22 @@ Screen {
 Footer {
     background: $mt-raised;
 }
+
+#overview {
+    grid-size: 3;
+    grid-gutter: 1;
+    height: auto;
+    padding: 1;
+}
+
+.tile {
+    height: auto;
+    padding: 0 1;
+    border: round $mt-grid;
+    background: $mt-raised;
+}
+
+.empty {
+    padding: 1 2;
+    color: $mt-text-2;
+}
