@@ -35,5 +35,10 @@ Sleep 1500ms
 Screenshot docs/img/screen-movers.png
 Sleep 500ms
 
+Right
+Sleep 1500ms
+Screenshot docs/img/screen-breadth.png
+Sleep 500ms
+
 Type "q"
 Sleep 500ms

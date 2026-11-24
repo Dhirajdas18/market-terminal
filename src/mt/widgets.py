@@ -287,3 +287,84 @@ def movers_tab(snap: dict) -> Widget:
 
 TABS.append(("Chart", chart_tab))
 TABS.append(("Movers", movers_tab))
+
+
+def _count(value: int | None, of: int | None) -> str:
+    """'30 of 47', or an em dash for a missing count."""
+    return "—" if value is None or of is None else f"{value} of {of}"
+
+
+def breadth_text(b: dict) -> Text:
+    """The breadth counts as plain Text, each with the number of stocks it could be computed for."""
+    above = b.get("above50") or {}
+    of = above.get("of")
+    share = "" if not of or above.get("count") is None else f" ({above['count'] / of:.0%})"
+    text = Text(f"{_count(above.get('count'), of)} above 50-day average{share}", style="bold")
+    day = [b.get(k) for k in ("up", "down", "flat")]
+    shown = "—" if None in day else sum(day)
+    text.append(
+        f"\n{_c(b.get('up'))} up, {_c(b.get('down'))} down, {_c(b.get('flat'))} unchanged"
+        f" (of {shown} stocks with a bar today)"
+    )
+    of52 = b.get("of52")
+    text.append(
+        f"\n{_count(b.get('highs'), of52)} at a 250-day high, "
+        f"{_count(b.get('lows'), of52)} at a 250-day low",
+    )
+    text.append(
+        "\nA stock is counted only with enough history (50 closes for the average, 250 for the "
+        "high and low) and a bar today.",
+        style=MUTED,
+    )
+    return text
+
+
+def _c(value: int | None) -> str:
+    return "—" if value is None else str(value)
+
+
+def draw_spark(plot: TokenPlot, spark: dict) -> None:
+    """The share of stocks above their 50-day average, one point per session (0 to 100%)."""
+    plt = plot.plt
+    plt.clear_figure()
+    dates = spark["dates"]
+    pts = [(i, v * 100) for i, v in enumerate(spark["pct"]) if v is not None]
+    if pts:
+        plt.plot(*zip(*pts, strict=True), color=_rgb(ACCENT), marker="braille")
+    plt.plot([0, max(len(dates) - 1, 1)], [50, 50], color=_rgb(MUTED), marker="braille")
+    plt.ylim(0, 100)
+    plt.yticks([0, 25, 50, 75, 100], ["0%", "25%", "50%", "75%", "100%"])
+    pos = tick_positions(len(dates))
+    plt.xticks(pos, [_short(dates[i]) for i in pos])
+    plt.grid(False, False)
+    plt.title(f"% of stocks above 50-day average · {len(dates)} sessions, line at 50%")
+    plot.refresh()
+
+
+class BreadthPanel(Vertical):
+    """The counts at once; the sparkline is built the first time the tab is shown."""
+
+    def __init__(self, b: dict):
+        super().__init__(id="breadth")
+        self._b = b
+        self._built = False
+
+    def compose(self):
+        yield Static(breadth_text(self._b), id="breadth-counts")
+
+    def on_show(self, event: events.Show) -> None:
+        if not self._built and (self._b.get("spark") or {}).get("dates"):
+            self._built = True
+            self._spark = TokenPlot(id="breadth-spark")
+            self.mount(self._spark)
+            draw_spark(self._spark, self._b["spark"])
+
+
+def breadth_tab(snap: dict) -> Widget:
+    b = snap.get("breadth") or {}
+    if not b:
+        return Static("No breadth data.", classes="empty")
+    return BreadthPanel(b)
+
+
+TABS.append(("Breadth", breadth_tab))

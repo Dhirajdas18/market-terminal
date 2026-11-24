@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from mt import candles, plots
+from mt import breadth, candles, plots
 from mt.data import (
     FIXES,
     NSE_TICKERS,
@@ -370,4 +370,109 @@ def report_candles(out_dir: Path) -> dict:
     return out
 
 
-REPORTS = {"data": report_data, "overview": report_overview, "candles": report_candles}
+def _breadth_charts(pct: pd.Series, res: dict, out_dir: Path) -> None:
+    split = pd.Timestamp(res["split"])
+    fig, ax = plt.subplots(figsize=(10, 4.6))
+    line = pct.loc[res["train_first"] :].dropna() * 100
+    ax.plot(line.index, line.to_numpy(), color=plots.SERIES[0], linewidth=0.8)
+    thr = res["breadth"]["threshold"] * 100
+    ax.plot([line.index[0], line.index[-1]], [thr, thr], color=plots.TEXT_2, linewidth=0.9,
+            linestyle="--")
+    ax.axvline(split, color=plots.TEXT_2, linewidth=0.8)
+    ax.text(split, 99, " scored from here", fontsize=8, va="top", color=plots.TEXT_2)
+    ax.text(line.index[0], thr + 2, f"training median {thr:.0f}%", fontsize=8, color=plots.TEXT_2,
+            bbox={"facecolor": plots.SURFACE, "edgecolor": "none", "pad": 1.5})
+    ax.set_ylim(0, 100)
+    ax.set_yticks([0, 25, 50, 75, 100], ["0%", "25%", "50%", "75%", "100%"])
+    ax.set_ylabel("stocks above their 50-day average")
+    ax.grid(axis="x", visible=False)
+    ax.set_title(
+        f"Share of today's NIFTY 50 above their 50-day average, {line.index[0]:%Y}–"
+        f"{line.index[-1]:%Y}\nthreshold from {line.index[0]:%Y}–{split.year - 1} only: "
+        f"the median, {thr:.0f}%"
+    )
+    plots.save(fig, out_dir, "breadth_history")
+
+    fig, ax = plt.subplots(figsize=(10, 4.6))
+    groups = [("% above 50-day avg", res["breadth"]), ("NIFTY vs its 50-day avg", res["nifty"])]
+    x = np.arange(len(groups))
+    ax.bar(x - 0.2, [g["high"]["mean"] * 100 for _, g in groups], 0.4, color=plots.SERIES[0],
+           label="signal above its training median")
+    ax.bar(x + 0.2, [g["low"]["mean"] * 100 for _, g in groups], 0.4, color=plots.SERIES[1],
+           label="signal at or below it")
+    ax.set_xticks(x, [name for name, _ in groups], fontsize=9)
+    ax.axhline(res["all_mean"] * 100, color=plots.TEXT_2, linewidth=0.8, linestyle="--")
+    for xs, key in ((x - 0.2, "high"), (x + 0.2, "low")):
+        for xi, (_, g) in zip(xs, groups, strict=True):
+            ax.text(xi, g[key]["mean"] * 100 + 0.02, _pct(g[key]["mean"], 2, True), ha="center",
+                    fontsize=9, color=plots.TEXT)
+    ax.set_ylim(0, 1.55)
+    ax.set_ylabel("mean NIFTY return over the next 20 sessions (%)")
+    ax.grid(axis="x", visible=False)
+    ax.legend(loc="upper left", fontsize=8, ncols=2)
+    b, n = res["breadth"], res["nifty"]
+    ax.set_title(
+        f"Scored {res['first_day'][:4]}–{res['last_day'][:4]}: mean NIFTY return over the next 20 "
+        f"sessions\nhigh minus low, breadth: {_pct(b['diff'], 2, True)} (t {_t(b['diff_t'])})\n"
+        f"high minus low, NIFTY vs its average: {_pct(n['diff'], 2, True)} (t {_t(n['diff_t'])})"
+        f"; dashed line, all days: {_pct(res['all_mean'])}"
+    )
+    plots.save(fig, out_dir, "breadth_returns")
+
+
+def report_breadth(out_dir: Path) -> dict:
+    """Day counts as the Breadth tab shows them, then the out-of-sample check: does the share of
+    stocks above their 50-day average say anything about NIFTY's next 20 sessions beyond NIFTY's
+    own position against its 50-day average? Thresholds from 2008-2016, scored 2017 on."""
+    table = _table()
+    close = breadth.fixed_close(table["close"][SYMBOLS])
+    hist = breadth.history(close)
+    pct = hist["pct_above50"]
+    nifty = table["close"]["NIFTY"]
+    res = breadth.oos_check(pct, nifty)
+    res["split"] = "2017-01-01"
+    now = breadth.above_ma(close)
+    ext = breadth.new_highs_lows(close)
+    stocks = hist.loc[res["train_first"] :, "of"]
+    out: dict = {
+        "latest": f"{close.dropna(how='all').index[-1]:%Y-%m-%d}: {now['count']} of {now['of']} "
+        f"above 50-day average, {ext['highs']} of {ext['of']} at a 250-day high, "
+        f"{ext['lows']} at a low",
+        "stocks in the 50-day measure": f"{int(stocks.iloc[0])} on {res['train_first']}, "
+        f"{int(stocks.max())} at most",
+        "share above, min / median / max": tuple(
+            _pct(float(v), 0) for v in (pct.min(), pct.median(), pct.max())
+        ),
+        "training days (2008-2016)": f"{res['train_days']:,} from {res['train_first']}",
+        "scored sessions": f"{res['n']:,} ({res['first_day']} to {res['last_day']}); all-days "
+        f"mean next-20-session return {_pct(res['all_mean'])}, up {_pct(res['all_hit'], 1)}",
+    }
+    for key, label, fmt in (
+        ("breadth", "% above 50-day, threshold", lambda v: _pct(v, 1)),
+        ("nifty", "NIFTY vs 50-day average, threshold", lambda v: _pct(v, 2, True)),
+        ("above_zero", "NIFTY above its 50-day average, cut-off", lambda v: "0"),
+    ):
+        r = res[key]
+        out[f"{label} {fmt(r['threshold'])}"] = "; ".join(
+            f"{name}: {r[name]['n']:,} days, up {_pct(r[name]['hit'], 1)}, mean "
+            f"{_pct(r[name]['mean'], 2, True)} (t {_t(r[name]['t'])})"
+            for name in ("high", "low")
+        ) + f"; difference {_pct(r['diff'], 2, True)} (t {_t(r['diff_t'])})"
+    j = res["joint"]
+    out["both flags in one regression"] = (
+        f"breadth {_pct(j['breadth'], 2, True)} (t {_t(j['breadth_t'])}), NIFTY vs average "
+        f"{_pct(j['nifty'], 2, True)} (t {_t(j['nifty_t'])})"
+    )
+    out["days the two flags agree"] = _pct(res["agree"], 0)
+    out["standard errors"] = "Newey-West, 19 lags (20-session returns overlap by 19)"
+    out["sample"] = "today's 50 members applied to past years: survivorship-biased, an upper bound"
+    _breadth_charts(pct, res, out_dir)
+    return out
+
+
+REPORTS = {
+    "data": report_data,
+    "overview": report_overview,
+    "candles": report_candles,
+    "breadth": report_breadth,
+}

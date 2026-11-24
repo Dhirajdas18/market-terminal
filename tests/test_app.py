@@ -445,3 +445,57 @@ def test_y_binding_only_on_chart_tab_and_label_follows_state():
     assert out["Overview"] == (set(), False) and out["Movers"] == (set(), False)
     assert out["fit"] == {"1 year"}
     assert out["year"] == ({"Fit width"}, True)
+
+
+def test_breadth_tab(snap_compare):
+    async def go(pilot):
+        _open_tab(pilot.app, "Breadth")
+        await pilot.pause()
+        await pilot.pause()
+
+    assert snap_compare(TerminalApp(SNAP, None), run_before=go, terminal_size=(120, 36))
+
+
+def _breadth_view(snap: dict):
+    from textual_plotext import PlotextPlot
+
+    app = TerminalApp(snap, None)
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            await pilot.pause()
+            before = len(app.query(PlotextPlot))
+            _open_tab(app, "Breadth")
+            await pilot.pause()
+            await pilot.pause()
+            text = str(app.query_one("#breadth-counts", Static).content)
+            plots = {p.id: p.plt.build() for p in app.query(PlotextPlot)}
+            return before, text, plots
+
+    return asyncio.run(run())
+
+
+def test_breadth_tab_states_every_count_with_its_denominator():
+    before, text, plots = _breadth_view(SNAP)
+    assert before == 0  # the sparkline is built when the tab is first shown
+    assert "30 of 47 above 50-day average" in text
+    assert "3 of 45" in text and "0 of 45" in text
+    assert "30 up" in text and "16 down" in text and "2 unchanged" in text
+    assert "% of stocks above 50-day average" in plots["breadth-spark"]
+
+
+def test_breadth_tab_handles_missing_values_and_empty_section():
+    snap = json.loads(json.dumps(SNAP))
+    snap["breadth"]["above50"] = {"count": None, "of": None}
+    _, text, _ = _breadth_view(snap)
+    assert text.startswith("— above 50-day average")
+    snap["breadth"] = {}
+    app = TerminalApp(snap, None)
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            _open_tab(app, "Breadth")
+            await pilot.pause()
+            return [str(s.content) for s in app.query(Static) if s.has_class("empty")]
+
+    assert "No breadth data." in asyncio.run(run())

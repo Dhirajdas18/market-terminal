@@ -20,6 +20,8 @@ the app on that file with no network and refresh off.
   and year-to-date change and the position inside the 52-week range
 - [x] Chart tab: NIFTY candles with 20- and 50-day averages and the traded value of the 50 stocks below;
   Movers tab: top 5 gainers, losers and unusual-volume stocks
+- [x] Breadth tab: stocks above their 50-day average, up / down / unchanged and 250-day highs and lows,
+  each with the number of stocks it could be computed for, and a one-year line of the 50-day share
 
 ## Usage
 
@@ -29,6 +31,7 @@ uv run mt                  # first run downloads 2007 onwards (~20 s) before ope
 uv run mt report data      # README chart -> out/, numbers printed
 uv run mt report overview  # the S&P 500 check below
 uv run mt report candles   # gaps and unusual volume below
+uv run mt report breadth   # the out-of-sample check below
 uv run pytest
 ```
 
@@ -76,6 +79,20 @@ Day changes use adjusted closes with the known Yahoo errors from
 `docs/data/yahoo_fixes.csv` repaired. Unusual volume is today's volume divided by the mean of the
 previous 20 sessions (today left out; a day with no volume print counts as missing). A stock without
 a bar on the session date is left out of all three tables.
+
+## Breadth tab
+
+<a href="docs/img/screen-breadth.png"><img src="docs/img/screen-breadth.png" alt="The Breadth tab: 30 of 47 above 50-day average (64%), 30 up, 16 down, 2 unchanged of 48 stocks with a bar today, 3 of 45 at a 250-day high and 0 of 45 at a low, and a line of the share of stocks above their 50-day average over 250 sessions with a dotted line at 50%" width="100%"></a>
+
+Every count shows how many stocks it could be computed for. A stock enters the 50-day count once it has
+50 closes and the 250-day high and low once it has 250 (a recent listing stays out of that count and its
+total); a stock with no bar on the session date is left out of all of them, and so is one with a missing
+close inside the window until the window is clear. The average includes the day's close, and a close
+equal to the average is not above it. A 250-day high means the close is at or above the previous 249
+closes. Up, down and unchanged use adjusted closes with the known Yahoo errors repaired; the
+average and high/low counts use closes with the bad prints and pre-listing prices in
+`docs/data/yahoo_fixes.csv` removed. Rows that are not trading days (a holiday, or a bar Yahoo gives one
+ticker on a Saturday) are dropped before any window is taken. The line is drawn when the tab is first opened.
 
 ## Findings
 
@@ -150,6 +167,32 @@ for that day or the next.
 - **Sample:** the 50 are today's members applied to past years (survivorship-biased, see Design); the
   `mt report candles` output prints every number above.
 
+### 4. Scored on 2017 to 2026, the share of stocks above their 50-day average separates NIFTY's next-20-session return by +0.12% between high and low days (t 0.2); NIFTY's own position against its 50-day average separates it by +0.43% (t 0.7)
+
+<a href="docs/img/breadth_history.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/breadth_history.png"><img src="docs/img/breadth_history.gif" alt="Line of the share of today's NIFTY 50 stocks above their 50-day average from 2008 to 2026, with a dashed line at the 58% training median and a vertical line at 2017 where scoring starts" width="720"></picture></a>
+
+<a href="docs/img/breadth_returns.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/breadth_returns.png"><img src="docs/img/breadth_returns.gif" alt="Bars of the mean NIFTY return over the next 20 sessions after high and low days of the share above the 50-day average (+1.06% and +0.94%) and of NIFTY against its own 50-day average (+1.20% and +0.77%), with a dashed line at the all-days mean of 1.00%" width="720"></picture></a>
+
+- **Question:** does the share of stocks above their 50-day average add anything to NIFTY's own
+  position against its 50-day average for NIFTY's return over the next 20 sessions? Each signal's
+  threshold is its median over 2008 to 2016 (2,195 sessions): 58.1% of stocks for breadth, NIFTY 1.07%
+  above its average for the baseline. Only sessions from 2 Jan 2017 are scored; the 2008 to 2016
+  sessions fix the thresholds and nothing else.
+- **Scored sample:** 2,419 sessions from 2 Jan 2017 to 23 Oct 2026 (later sessions do not have 20
+  sessions ahead yet). Across all of them NIFTY rose over the next 20 sessions 63.5% of the time, a mean
+  of +1.00%. Standard errors are Newey-West with 19 lags, as 20-session returns overlap by 19.
+- **Breadth above its training median:** 1,297 sessions, up 65.0%, mean +1.06% (t 3.2). At or below:
+  1,122 sessions, up 61.7%, mean +0.94% (t 1.7). Difference +0.12% (t 0.2).
+- **NIFTY above its training-median distance from its 50-day average:** 1,305 sessions, up 67.7%, mean
+  +1.20% (t 3.9). At or below: 1,114 sessions, up 58.5%, mean +0.77% (t 1.3). Difference +0.43%
+  (t 0.7). With the cut-off at its own average (zero) instead: 1,607 and 812 sessions, +1.11% and
+  +0.78%, difference +0.33% (t 0.5).
+- **Both flags in one regression:** breadth −0.47% (t −0.8), NIFTY against its average +0.79% (t 1.2).
+  The two flags give the same answer on 88% of sessions.
+- **Sample:** the 50 are today's NIFTY members applied to past years, so stocks that left the index
+  are missing: survivorship-biased, and the numbers above are an upper bound. The count of stocks in the 50-day share grows from 38 on 2 Jan 2008 to 50;
+  `mt report breadth` prints every number above.
+
 ## Design
 
 - `src/mt/data.py`: tickers, Yahoo download with retries (`DownloadFailed` names any missing ticker and
@@ -159,6 +202,8 @@ for that day or the next.
 - `src/mt/session.py`: which trading day to show.
 - `src/mt/overview.py`: day / week / year-to-date change and 52-week position per series.
 - `src/mt/candles.py`: moving averages, gaps, traded value, movers and unusual volume.
+- `src/mt/breadth.py`: stocks above their average, up / down / unchanged, highs and lows with their
+  denominators, the 50-day share per session, and the out-of-sample check.
 - `src/mt/snapshot.py`: one plain dict that every screen reads; schema in [docs/snapshot.md](docs/snapshot.md).
 - `src/mt/app.py`, `widgets.py`, `app.tcss`: the Textual app; colours from the chart tokens in `plots.py`.
 - `src/mt/reports.py`: README findings, reproducible with `mt report <topic>`.

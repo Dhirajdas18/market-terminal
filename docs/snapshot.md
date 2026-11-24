@@ -70,3 +70,19 @@ Stocks with a bar on `as_of` only (`mt.candles.movers_section`).
 |---|---|---|
 | `gainers`, `losers` | list of `{"symbol", "ret"}` | 5 biggest and smallest day returns (adjusted close, Yahoo errors repaired from `docs/data/yahoo_fixes.csv`); a stock with no return is skipped |
 | `unusual` | list of `{"symbol", "ratio", "ret"}` | 5 highest ratios of today's volume to the mean of the previous 20 sessions (today left out; a volume of 0 counts as missing; fewer than 20 prior sessions gives no ratio); `ret` is `null` if missing |
+
+### `breadth`
+
+Counts for the stocks that have a bar on `as_of` (`mt.breadth.section`); `{}` if the table has no
+close or adjusted close. Every count says how many stocks it was computed for: a stock with too little history
+for a measure, no bar today, or a missing close inside the window is left out of that measure and its
+denominator. Non-trading rows (all stocks NaN, or fewer than half as many stocks as the busiest day)
+are dropped before any window. Closes have the `start` and `blank` rows of `docs/data/yahoo_fixes.csv` applied.
+
+| key | type | meaning |
+|---|---|---|
+| `up`, `down`, `flat` | int | stocks with a day return above, below and equal to 0 (adjusted close, Yahoo errors repaired); a stock with no return is not counted |
+| `above50` | `{"count", "of"}` | stocks whose close is above the mean of their last 50 closes (today included, strictly above), out of stocks with 50 closes and a bar today |
+| `highs`, `lows` | int | stocks whose close is at or above (at or below) the previous 249 closes |
+| `of52` | int | stocks with 250 closes and a bar today: the denominator of `highs` and `lows` |
+| `spark` | `{"dates", "pct"}` | the last 250 sessions; `pct` is the share (0 to 1) of stocks above their 50-day average that day, `null` until a stock has 50 closes |

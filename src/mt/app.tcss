@@ -86,3 +86,16 @@ DataTable {
     background: $mt-surface;
     height: auto;
 }
+
+#breadth {
+    height: 1fr;
+}
+
+#breadth-counts {
+    height: auto;
+    padding: 1 2;
+}
+
+#breadth-spark {
+    height: 1fr;
+}
