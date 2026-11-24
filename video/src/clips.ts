@@ -1,4 +1,14 @@
 // Where each segment starts in video/public/clips/session.mp4, which `vhs docs/clips.tape` writes.
+//
+// Regenerating the demo (README's docs/img/demo.mp4 and demo.gif) needs Node, VHS, ttyd and ffmpeg;
+// nothing in video/ runs in CI. From video/:
+//      npm ci
+//      npm run clips    # vhs docs/clips.tape: footage of every tab in video/public/clips/session.mp4
+//      npm run render   # runs check-clip, then writes docs/img/demo.mp4, 1920 x 1080 at 30 fps
+//      npm run gif      # docs/img/demo.gif, 1600 px wide at 12 fps
+// check-clip stops the render if the clip's length differs from durationSeconds by more than 0.1 s,
+// or if a segment start is not 0.05 to 0.25 s after a cut. The captions are in Demo.tsx; the numbers
+// in its last scene are copied from the README's launch and exit table.
 // Values are in seconds and live in clips.json, which scripts/check-clip.mjs also reads.
 // The check runs before every `npm run render` and fails if the clip no longer matches.
 //

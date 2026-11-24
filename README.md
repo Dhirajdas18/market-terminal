@@ -11,7 +11,7 @@ in a local cache. It runs only while open: no background jobs, no polling, netwo
 
 The demo and the screenshots use synthetic data (`tests/fixtures/snapshot.json`), not market data. Click the
 demo for the video, a screenshot for the full-size image. Regenerate the screenshots with
-`vhs docs/screens.tape` and the demo as in [Regenerating the demo](#regenerating-the-demo).
+`vhs docs/screens.tape`.
 `uv run mt --demo tests/fixtures/snapshot.json` opens the app on that file with no network and refresh off.
 
 ## Features
@@ -73,35 +73,6 @@ Measured on an Apple Silicon Mac, `mt` started in a real pseudo-terminal (200 ×
 | Memory (RSS) at first screen / after the update | 206 MB / 271 MB (target under 200 MB: not met) |
 | CPU while idle, 10 s to 60 s after launch | 0.0% at every sample |
 | `q` to process exit | 0.32 s; `pgrep` finds nothing |
-
-### Regenerating the demo
-
-The demo is edited in [Remotion](https://www.remotion.dev) from terminal footage of the synthetic demo data. It
-needs Node, VHS, ttyd and ffmpeg; nothing in `video/` runs in CI.
-
-```bash
-cd video
-npm ci
-npm run clips    # vhs docs/clips.tape: footage of every tab in video/public/clips/session.mp4
-npm run render   # checks the clip, then writes docs/img/demo.mp4, 1920 x 1080 at 30 fps
-npm run gif      # docs/img/demo.gif, 1600 px wide at 12 fps
-```
-
-The video cuts the clip at fixed times in `video/src/clips.json`. Each segment starts 0.1 s after the
-cut where the tab changes. `npm run render` first runs `npm run check-clip`. It stops with an error if
-the clip's length differs from `durationSeconds` by more than 0.1 s, or if a segment start is not 0.05
-to 0.25 s after a cut.
-
-After re-recording, list the cuts from the repo root:
-
-```bash
-ffmpeg -i video/public/clips/session.mp4 -vf "select='gt(scene,0.01)',showinfo" -f null - 2>&1 | grep -o 'pts_time:[0-9.]*'
-```
-
-Some cuts are not tab changes: `y` on the Chart segment, Down and Enter on the Watchlist segment, and
-`q` at the end. Set each start to its tab-change cut + 0.1 s and `durationSeconds` to the clip's length.
-`video/src/clips.ts` gives the full procedure. The captions are in `video/src/Demo.tsx`; the numbers in
-the last scene are copied from the table above.
 
 ## Data and limits
 
