@@ -23,6 +23,6 @@ jobs:
       - name: Audit dependencies
         run: |
           uv export --locked --format requirements-txt --no-emit-project -o "$RUNNER_TEMP/requirements.txt"
-          uvx pip-audit --strict --disable-pip --no-deps -r "$RUNNER_TEMP/requirements.txt"
+          uvx pip-audit==2.10.1 --strict --disable-pip --no-deps -r "$RUNNER_TEMP/requirements.txt"
       - name: Audit workflows
-        run: uvx zizmor --offline .github/workflows
+        run: uvx zizmor==1.33.1 --offline .github/workflows
