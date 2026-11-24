@@ -67,10 +67,10 @@ Measured on an Apple Silicon Mac, `mt` started in a real pseudo-terminal (200 ×
 
 | What | Measured |
 |---|---|
-| Start to first screen (cached data on screen) | 0.51 s |
-| First run, no cache: download from 2007 | 17.0 s, 10.1 MB parquet |
-| Later launch: background update of the last 7 days | 7.7 s |
-| Memory (RSS) at first screen / after the update | 205 MB / 308 MB |
+| Start to first screen (cached data on screen) | 0.58 s |
+| First run, no cache: download from 2007 | 17.7 s, 10.1 MB parquet |
+| Later launch: background update of the last 7 days | 7.2 s |
+| Memory (RSS) at first screen / after the update | 206 MB / 271 MB (target under 200 MB: not met) |
 | CPU while idle, 10 s to 60 s after launch | 0.0% at every sample |
 | `q` to process exit | 0.32 s; `pgrep` finds nothing |
 
@@ -325,22 +325,25 @@ for that day or the next.
 - **Sample:** the 50 are today's members applied to past years (survivorship-biased);
   `mt report stock` prints every number above.
 
-### 7. Launch to first screen takes 0.51 s on the cached data and 17.0 s on the first run; the app uses 205 MB at open and 308 MB after the update, and no process is left 0.32 s after `q`
+### 7. Launch to first screen takes 0.58 s on the cached data and 17.7 s on the first run; the app uses 206 MB at open and 271 MB after the update (above the 200 MB target), and no process is left 0.32 s after `q`
 
-Measured once on the Apple Silicon Mac above, in a real pseudo-terminal, on the real warm cache (not the
+Measured on the Apple Silicon Mac above, in a real pseudo-terminal (200 × 50), on the real warm cache (not the
 demo data), by a script that started `mt`, timed the first "Data for" text, ran `ps -o rss,%cpu` every 5 s for
-60 s, sent `q` and then ran `pgrep`.
+60 s, sent `q` and then ran `pgrep`. A first measurement with the old update code gave 205 MB and 308 MB; the
+update now reads only the last date and the older rows through Arrow and returns just the three-year tail.
 
-- **First screen:** 0.51 s from start to the header line. The first run, with no cache, downloads 2007
-  onwards in 17.0 s (a 10.1 MB parquet file); the app prints one line to stderr before it starts.
-- **Update:** the background update of the last 7 days finished within 10 s (7.7 s when timed alone). CPU
-  was 78% in the first second and 7.9% at 5 s, then 0.0% at each of the 11 samples from 10 s to 60 s.
-- **Memory:** 205 MB at the first screen, 262 MB at 5 s and 308 MB from 10 s to the end; the target was
-  under 200 MB and is missed at both points. Importing pandas and numpy brings the process to 95 MB, and reading
-  the three years of cache the screens need adds about 50 MB.
-- **After `q`:** the process exited after 0.32 s and `pgrep` found no `mt` process. No file other than the
-  cache, the log, the watchlist and the daily membership stamp is written, all under `data/` and
-  `~/.config/market-terminal/`.
+- **First screen:** 0.58 s from start to the header line. The first run, with no cache, downloads 2007
+  onwards in 17.7 s (a 10.1 MB parquet file); the app prints one line to stderr before it starts.
+- **Update:** the background update of the last 7 days finished within 10 s (7.2 s when timed alone). CPU
+  was 85.7% in the first second and 7.6% at 5 s, then 0.0% at each of the 11 samples from 10 s to 60 s.
+- **Memory:** 206 MB at the first screen, 228 MB at 5 s and 271 MB from 10 s to the end; the target of
+  under 200 MB is missed at all three points. Where the first screen's memory goes, measured one step at a
+  time: Python 17 MB, pandas and numpy +74 MB, Textual and the app +19 MB, pyarrow's parquet engine starting
+  on the first read +48 MB (the three-year table itself is 2 MB), scipy's optimiser +33 MB, the snapshot +10
+  MB. The update adds yfinance (+15 MB) and the download frames, about 65 MB in all.
+- **After `q`:** the process exited after 0.32 s and `pgrep` found no `mt` process. Files written: the price
+  cache in `data/`, and in `~/.config/market-terminal/` (a 0o700 folder) the log, the watchlist, the daily
+  membership stamp and yfinance's cookie and timezone databases in `yfinance/`.
 - **Sample:** one machine, one run of 60 s; the numbers will differ on another Mac or with a different cache size.
 
 ## Design
