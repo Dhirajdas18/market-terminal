@@ -9,3 +9,6 @@ __pycache__/
 .DS_Store
 site/
 snapshot_report.html
+video/node_modules/
+video/out/
+video/public/clips/

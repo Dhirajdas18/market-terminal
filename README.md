@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Dhirajdas18/market-terminal/actions/workflows/ci.yml/badge.svg)](https://github.com/Dhirajdas18/market-terminal/actions/workflows/ci.yml)
 
-<a href="docs/img/demo.mp4"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/screen-overview.png"><img src="docs/img/demo.gif" alt="The app opening on the demo data and stepping through the Overview, Chart (with y for the whole year), Movers, Breadth, Sectors and Watchlist tabs, opening a stock from the Watchlist, Escape back and q to quit" width="100%"></picture></a>
+<a href="docs/img/demo.mp4"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/screen-overview.png"><img src="docs/img/demo.gif" alt="A 36-second video of the app on the synthetic demo data: the headline Your NSE day, reviewed in one terminal; then the Overview, Chart (y for the whole year), Movers, Breadth, Sectors and Watchlist tabs and a stock view, each with a one-line caption; the measured numbers 0.58 s to first screen, 0.0% CPU while idle and 0.32 s from q to exit; and the repository link" width="100%"></picture></a>
 
 A small terminal app to open after the NSE close and review the day: today's NIFTY 50 plus a few
 reference series (NIFTY Bank, India VIX, USD/INR, gold, S&P 500), end-of-day bars from Yahoo Finance kept
@@ -10,9 +10,9 @@ in a local cache. It runs only while open: no background jobs, no polling, netwo
 `r`.
 
 The demo and the screenshots use synthetic data (`tests/fixtures/snapshot.json`), not market data. Click the
-demo for the video, a screenshot for the full-size image. Regenerate them with `vhs docs/demo.tape` and
-`vhs docs/screens.tape`. `uv run mt --demo tests/fixtures/snapshot.json` opens
-the app on that file with no network and refresh off.
+demo for the video, a screenshot for the full-size image. Regenerate the screenshots with
+`vhs docs/screens.tape` and the demo as in [Regenerating the demo](#regenerating-the-demo).
+`uv run mt --demo tests/fixtures/snapshot.json` opens the app on that file with no network and refresh off.
 
 ## Features
 
@@ -73,6 +73,22 @@ Measured on an Apple Silicon Mac, `mt` started in a real pseudo-terminal (200 ×
 | Memory (RSS) at first screen / after the update | 206 MB / 271 MB (target under 200 MB: not met) |
 | CPU while idle, 10 s to 60 s after launch | 0.0% at every sample |
 | `q` to process exit | 0.32 s; `pgrep` finds nothing |
+
+### Regenerating the demo
+
+The demo is edited in [Remotion](https://www.remotion.dev) from terminal footage of the synthetic demo data. It
+needs Node, VHS, ttyd and ffmpeg; nothing in `video/` runs in CI.
+
+```bash
+cd video
+npm ci
+npm run clips    # vhs docs/clips.tape: footage of every tab in video/public/clips/session.mp4
+npm run render   # docs/img/demo.mp4, 1920 x 1080 at 30 fps
+npm run gif      # docs/img/demo.gif, 1600 px wide at 12 fps
+```
+
+After re-recording, check the segment start times in `video/src/clips.ts`. The captions are in
+`video/src/Demo.tsx`; the numbers in the last scene are copied from the table above.
 
 ## Data and limits
 
