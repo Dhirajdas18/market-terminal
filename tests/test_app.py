@@ -414,3 +414,34 @@ def test_span_label_never_claims_a_year_it_lacks():
     assert widgets.span_label(250, 250, True) == "1 year"
     assert widgets.span_label(130, 130, True) == "all 130 sessions"
     assert widgets.span_label(100, 250, False) == "last 100 sessions"
+
+
+def _y_entries(app):
+    return {b.binding.description for k, b in app.active_bindings.items() if k == "y"}
+
+
+def test_y_binding_only_on_chart_tab_and_label_follows_state():
+    app = TerminalApp(SNAP, None)
+
+    async def run():
+        async with app.run_test(size=(120, 36)) as pilot:
+            out = {}
+            for tab in ("Overview", "Movers"):
+                _open_tab(app, tab)
+                await pilot.pause()
+                await pilot.press("y")
+                await pilot.pause()
+                out[tab] = (_y_entries(app), app.query_one(widgets.ChartPanel).full)
+            _open_tab(app, "Chart")
+            await pilot.pause()
+            await pilot.pause()
+            out["fit"] = _y_entries(app)
+            await pilot.press("y")
+            await pilot.pause()
+            out["year"] = (_y_entries(app), app.query_one(widgets.ChartPanel).full)
+            return out
+
+    out = asyncio.run(run())
+    assert out["Overview"] == (set(), False) and out["Movers"] == (set(), False)
+    assert out["fit"] == {"1 year"}
+    assert out["year"] == ({"Fit width"}, True)

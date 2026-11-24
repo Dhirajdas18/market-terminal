@@ -46,7 +46,8 @@ class TerminalApp(App):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh_data", "Refresh"),
-        Binding("y", "toggle_year", "Chart: 1 year"),
+        Binding("y", "show_year", "1 year"),
+        Binding("y", "fit_width", "Fit width"),
     ]
 
     def __init__(
@@ -84,9 +85,34 @@ class TerminalApp(App):
                 with TabPane(title, id=_pane_id(title)):
                     yield make(self.snapshot)
 
-    def action_toggle_year(self) -> None:
+    def _chart_state(self) -> bool | None:
+        """None when the Chart tab is not the active one, else whether it shows the year."""
+        tabs = self.query(TabbedContent)
+        panels = self.query(widgets.ChartPanel)
+        if not tabs or not panels or tabs.first().active != _pane_id("Chart"):
+            return None
+        return panels.first().full
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action not in ("show_year", "fit_width"):
+            return True
+        state = self._chart_state()  # one key, two labels: show only the one that applies
+        return state is not None and state == (action == "fit_width")
+
+    def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        self.refresh_bindings()
+
+    def _set_year(self, full: bool) -> None:
         for panel in self.query(widgets.ChartPanel):
-            panel.toggle_year()
+            if panel.full != full:
+                panel.toggle_year()
+        self.refresh_bindings()
+
+    def action_show_year(self) -> None:
+        self._set_year(True)
+
+    def action_fit_width(self) -> None:
+        self._set_year(False)
 
     @property
     def refreshing(self) -> bool:

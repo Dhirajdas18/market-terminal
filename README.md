@@ -61,7 +61,7 @@ high of the 365 calendar days to the session date.
 
 The candles are the most recent
 sessions that fit the terminal width, one candle per column (at least 60, at most 250), redrawn on
-resize; the title says how many ("last 108 sessions" in the screenshot). `y` switches to the whole year (250 sessions,
+resize; the title says how many ("last 115 sessions" in the screenshot). `y` switches to the whole year (250 sessions,
 candles may be squeezed) and back. The averages are computed on the whole history and then cut, so the
 first candle already has one. Green is a close above the open. The bars below are not NIFTY's own volume:
 Yahoo's `^NSEI` volume has no documented meaning, so they show the 50 stocks' traded value (close ×

@@ -30,7 +30,6 @@ Sleep 1500ms
 Screenshot docs/img/screen-chart-year.png
 Sleep 500ms
 
-Type "y"
 Right
 Sleep 1500ms
 Screenshot docs/img/screen-movers.png
