@@ -18,12 +18,16 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
 
 log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[2]
 CONSTITUENTS = ROOT / "docs" / "data" / "nifty50.csv"
 FIXES = ROOT / "docs" / "data" / "yahoo_fixes.csv"
 DATA_PATH = ROOT / "data" / "prices.parquet"
+YF_CACHE = Path.home() / ".config" / "market-terminal" / "yfinance"
 START = "2007-01-01"  # includes 2008
 VALID_SYMBOL = re.compile(r"^[A-Z0-9&-]{1,20}$")
 FIELDS = {
@@ -77,6 +81,10 @@ def fetch(start: str, end: str | None = None) -> pd.DataFrame:
     """Download every ticker from `start` (inclusive) to `end` (exclusive, default: today)."""
     import yfinance as yf
 
+    # yfinance's cookie and timezone databases go to a private dir, not ~/Library/Caches (0o644)
+    YF_CACHE.mkdir(mode=0o700, parents=True, exist_ok=True)
+    YF_CACHE.chmod(0o700)
+    yf.set_tz_cache_location(str(YF_CACHE))
     # threads=False: parallel downloads can lock yfinance's sqlite cache and drop a ticker
     raw = yf.download(
         list(TICKERS), start=start, end=end, auto_adjust=False, progress=False, threads=False
@@ -134,12 +142,24 @@ def remove_stale_temp_files(directory: Path | None = None) -> None:
             leftover.unlink(missing_ok=True)
 
 
-def _write_atomic(table: pd.DataFrame, path: Path) -> None:
+def _last_date(path: Path) -> pd.Timestamp | None:
+    """The newest cached date, read from the date column alone (None: no cache, or unreadable)."""
+    if not path.exists():
+        return None
+    try:
+        dates = pq.read_table(path, columns=["date"])["date"]
+        return pd.Timestamp(pc.max(dates).as_py()) if len(dates) else None
+    except Exception as exc:  # corrupt cache file: download everything again and overwrite it
+        log.warning("cache unreadable: %s: %s", type(exc).__name__, exc)
+        return None
+
+
+def _write_atomic(table: pa.Table, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=path.parent, suffix=".tmp", delete=False) as tmp:
         tmp_path = Path(tmp.name)
     try:
-        table.to_parquet(tmp_path)
+        pq.write_table(table, tmp_path)
         tmp_path.replace(path)
     finally:
         tmp_path.unlink(missing_ok=True)
@@ -149,32 +169,36 @@ def update_cache(
     path: Path = DATA_PATH,
     fetch: Callable[..., pd.DataFrame] = fetch,
     overlap_days: int = 7,
+    since: pd.Timestamp | None = None,
 ) -> pd.DataFrame:
-    """Bring the cache up to date and return the whole table.
+    """Bring the cache up to date and return the table from `since` on (everything if None).
 
     First run downloads from 2007. Later runs download from the last cached date minus
-    `overlap_days`, so revised bars replace the cached ones. Raises DownloadFailed (cache untouched)
-    if Yahoo leaves any ticker out."""
+    `overlap_days`, so revised bars replace the cached ones. The merge happens in Arrow (only the
+    older rows are read, never a second full pandas copy), so the app's update path holds just the
+    new rows and the returned tail. Raises DownloadFailed (cache untouched) if Yahoo leaves any
+    ticker out."""
     path = Path(path)
-    try:
-        old = load_cache(path)
-    except Exception as exc:  # corrupt cache file: download everything again and overwrite it
-        log.warning("cache unreadable: %s: %s", type(exc).__name__, exc)
-        old = None
-    if old is None or old.empty:
-        start = START
-    else:
-        start = (old.index.max() - pd.Timedelta(days=overlap_days)).strftime("%Y-%m-%d")
+    last = _last_date(path)
+    start = START if last is None else (last - pd.Timedelta(days=overlap_days)).strftime("%Y-%m-%d")
     new = download(lambda: fetch(start), missing_symbols)
-    if old is None or old.empty:
-        table = new
+    new = new.dropna(how="all").sort_index().sort_index(axis=1)
+    new.columns.names = ["field", "symbol"]
+    new.index.name = "date"
+    fresh = pa.Table.from_pandas(new)
+    first_new = new.index.min()
+    del new
+    if last is None:
+        merged = fresh
     else:
-        table = pd.concat([old[~old.index.isin(new.index)], new])
-    table = table.dropna(how="all").sort_index().sort_index(axis=1)
-    table.columns.names = ["field", "symbol"]
-    table.index.name = "date"
-    _write_atomic(table, path)
-    return table
+        old = pq.read_table(path, filters=[("date", "<", first_new.to_pydatetime())])
+        merged = pa.concat_tables([old, fresh.cast(old.schema)])
+        del old
+    del fresh
+    _write_atomic(merged, path)
+    del merged
+    pa.default_memory_pool().release_unused()
+    return load_cache(path, since=since)
 
 
 def flag_adjusted_drops(

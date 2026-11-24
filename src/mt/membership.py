@@ -72,7 +72,7 @@ def check(
     try:
         if Path(stamp).read_text(encoding="utf-8").strip() == day:
             return None
-    except OSError:
+    except (OSError, ValueError):  # no stamp, or one that is not text: check again
         pass
     try:
         live = fetch()

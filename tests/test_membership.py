@@ -93,3 +93,10 @@ def test_fetch_rejects_bad_files(monkeypatch, body):
     _serve(monkeypatch, body)
     with pytest.raises(ValueError):
         membership.fetch_nse()
+
+
+def test_binary_stamp_is_ignored_and_fetch_runs(tmp_path):
+    stamp = tmp_path / "stamp"
+    stamp.write_bytes(b"\xff\xfe\x00bad")
+    assert membership.check(COMMITTED, lambda: set(COMMITTED), stamp, today="2026-11-24") is None
+    assert stamp.read_text() == "2026-11-24"  # rewritten

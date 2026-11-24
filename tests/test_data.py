@@ -126,3 +126,53 @@ def test_each_failed_attempt_is_logged(caplog):
     with caplog.at_level("WARNING", logger="mt.data"), pytest.raises(DownloadFailed):
         data.download(fetch, lambda df: [], attempts=3)
     assert caplog.text.count("ConnectionError: reset by peer") == 3
+
+
+def test_app_path_update_never_loads_the_full_table(tmp_path, monkeypatch):
+    path = tmp_path / "p.parquet"
+    update_cache(path, fetch=FakeFetch(end="2026-11-20"))
+    real = data.load_cache
+
+    def only_tail(p=data.DATA_PATH, since=None):
+        if since is None:
+            raise AssertionError("full-table pandas load")
+        return real(p, since)
+
+    monkeypatch.setattr(data, "load_cache", only_tail)
+    fetch = FakeFetch(end="2026-11-23")
+    tail = update_cache(path, fetch=fetch, since=pd.Timestamp("2026-11-01"))
+    assert fetch.calls == ["2026-11-13"]
+    assert tail.index.min() == pd.Timestamp("2026-11-02")
+    assert tail.index.max() == pd.Timestamp("2026-11-23")
+    monkeypatch.undo()
+    full = load_cache(path)
+    assert full.index.max() == pd.Timestamp("2026-11-23") and not full.index.duplicated().any()
+    assert full.index.min() == pd.Timestamp("2007-01-01")
+
+
+def test_merge_keeps_old_rows_and_replaces_the_overlap(tmp_path):
+    path = tmp_path / "p.parquet"
+    update_cache(path, fetch=FakeFetch(end="2026-11-20", value=100.0))
+    later = FakeFetch(end="2026-11-23", value=101.0)
+    update_cache(path, fetch=later, since=pd.Timestamp("2026-11-01"))
+    close = load_cache(path)["close"]["NIFTY"]
+    assert close.loc["2026-11-12"] == 100.0 and close.loc["2026-11-13":].eq(101.0).all()
+    assert list(path.parent.glob("*.tmp")) == []
+
+
+def test_yfinance_caches_live_in_a_private_dir(tmp_path, monkeypatch):
+    import stat
+    import sys
+    import types
+
+    seen = {}
+    fake = types.SimpleNamespace(
+        set_tz_cache_location=lambda d: seen.setdefault("dir", d),
+        download=lambda *a, **k: (_ for _ in ()).throw(RuntimeError("stop")),
+    )
+    monkeypatch.setitem(sys.modules, "yfinance", fake)
+    monkeypatch.setattr(data, "YF_CACHE", tmp_path / "cfg" / "yfinance")
+    with pytest.raises(RuntimeError):
+        data.fetch("2026-01-01")
+    assert seen["dir"] == str(tmp_path / "cfg" / "yfinance")
+    assert stat.S_IMODE((tmp_path / "cfg" / "yfinance").stat().st_mode) == 0o700

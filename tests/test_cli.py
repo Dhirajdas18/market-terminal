@@ -9,7 +9,7 @@ import mt.data
 from mt import cli
 
 
-def _cache() -> pd.DataFrame:
+def _cache(since=None) -> pd.DataFrame:
     idx = pd.bdate_range(end="2026-11-23", periods=30, name="date")
     cols = pd.MultiIndex.from_product([["close", "adj_close"], ["NIFTY", "TCS"]],
                                       names=["field", "symbol"])
@@ -36,7 +36,7 @@ def recorder(monkeypatch):
 def test_warm_cache_opens_at_once_and_updates_in_the_app(monkeypatch, recorder):
     monkeypatch.setattr(mt.data, "load_cache", lambda since=None: _cache())
 
-    def no_network():
+    def no_network(since=None):
         raise AssertionError("launch must not wait on the download")
 
     monkeypatch.setattr(mt.data, "update_cache", no_network)
@@ -55,7 +55,7 @@ def test_no_cache_and_failing_fetch_exits_1_without_traceback(monkeypatch, recor
         raise ValueError("bad response")
 
     monkeypatch.setattr(mt.data, "update_cache",
-                        lambda: real_update(tmp_path / "p.parquet", fetch=fetch))
+                        lambda since=None: real_update(tmp_path / "p.parquet", fetch=fetch))
     assert cli.run_app() == 1
     err = capsys.readouterr().err
     assert "No price data yet" in err and "DownloadFailed" in err and "Traceback" not in err
@@ -64,7 +64,7 @@ def test_no_cache_and_failing_fetch_exits_1_without_traceback(monkeypatch, recor
 def test_no_cache_and_unexpected_error_exits_1(monkeypatch, recorder, capsys):
     monkeypatch.setattr(mt.data, "load_cache", lambda since=None: None)
 
-    def broken():
+    def broken(since=None):
         raise ValueError("parquet engine missing")
 
     monkeypatch.setattr(mt.data, "update_cache", broken)
@@ -160,7 +160,7 @@ def test_offline_with_cache_opens_with_notice(monkeypatch):
     monkeypatch.setattr(cli, "now_ist", lambda: pd.Timestamp("2026-11-24 20:00", tz="Asia/Kolkata"))
     monkeypatch.setattr(mt.data, "load_cache", lambda since=None: _cache())
 
-    def offline():
+    def offline(since=None):
         raise OSError("network is down")
 
     monkeypatch.setattr(mt.data, "update_cache", offline)
@@ -193,7 +193,7 @@ def test_offline_without_cache_exits_cleanly(monkeypatch, capsys):
     monkeypatch.setattr(mt.data, "load_cache", lambda since=None: None)
     monkeypatch.setattr(cli, "setup_logging", lambda: None)
 
-    def offline():
+    def offline(since=None):
         raise OSError("network is down")
 
     monkeypatch.setattr(mt.data, "update_cache", offline)
@@ -264,3 +264,44 @@ def test_demo_nested_json_and_big_files_exit_cleanly(tmp_path, capsys, recorder)
     assert cli.main(["--demo", str(big)]) == 1
     err = capsys.readouterr().err
     assert "Traceback" not in err and "too large" in err and err.count("Cannot open demo file") == 2
+
+
+def _fresh(monkeypatch):
+    import mt.membership
+
+    monkeypatch.setattr(cli, "now_ist", lambda: pd.Timestamp("2026-11-24 20:00", tz="Asia/Kolkata"))
+    monkeypatch.setattr(mt.data, "update_cache", _cache)
+    return mt.membership
+
+
+def test_membership_failure_never_loses_the_downloaded_snapshot(monkeypatch):
+    membership = _fresh(monkeypatch)
+
+    def boom(*a, **k):
+        raise RuntimeError("banner broke")
+
+    monkeypatch.setattr(membership, "check", boom)
+    snap = cli.refresh()
+    assert snap["as_of"] == "2026-11-23" and snap["notice"] is None
+
+
+def test_binary_stamp_file_still_delivers_the_snapshot(monkeypatch, tmp_path):
+    membership = _fresh(monkeypatch)
+    stamp = tmp_path / "stamp"
+    stamp.write_bytes(b"\xff\xfe\x00bad")
+    monkeypatch.setattr(membership, "STAMP", stamp)
+    monkeypatch.setattr(membership, "fetch_nse", lambda: set(mt.data.SYMBOLS))
+    assert cli.refresh()["as_of"] == "2026-11-23"
+
+
+def test_unwritable_stamp_dir_still_delivers_the_snapshot(monkeypatch, tmp_path):
+    membership = _fresh(monkeypatch)
+    ro = tmp_path / "ro"
+    ro.mkdir()
+    ro.chmod(0o500)
+    monkeypatch.setattr(membership, "STAMP", ro / "sub" / "stamp")
+    monkeypatch.setattr(membership, "fetch_nse", lambda: set(mt.data.SYMBOLS))
+    try:
+        assert cli.refresh()["as_of"] == "2026-11-23"
+    finally:
+        ro.chmod(0o700)

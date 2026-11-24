@@ -15,6 +15,10 @@ DEMO_MAX_BYTES = 5 * 1024 * 1024
 HISTORY = pd.DateOffset(years=3, days=10)  # the screens need at most ~3 years of bars
 
 
+def _since() -> pd.Timestamp:
+    return now_ist().tz_localize(None).normalize() - HISTORY
+
+
 def now_ist() -> pd.Timestamp:
     return pd.Timestamp.now(tz="Asia/Kolkata")
 
@@ -36,7 +40,7 @@ def snapshot_from(table: pd.DataFrame) -> dict:
 def _download() -> dict:
     from mt.data import update_cache
 
-    return snapshot_from(update_cache())
+    return snapshot_from(update_cache(since=_since()))
 
 
 def refresh() -> dict:
@@ -46,7 +50,10 @@ def refresh() -> dict:
     from mt.data import SYMBOLS
 
     snap = _download()
-    snap["notice"] = membership.check(set(SYMBOLS), membership.fetch_nse, membership.STAMP)
+    try:
+        snap["notice"] = membership.check(set(SYMBOLS), membership.fetch_nse, membership.STAMP)
+    except Exception as exc:  # a banner problem must never lose the downloaded data
+        log.warning("membership check failed: %s: %s", type(exc).__name__, exc)
     return snap
 
 
@@ -77,7 +84,7 @@ def run_app() -> int:
         remove_stale_temp_files(DATA_PATH.parent)
     except OSError as exc:
         log.warning("stale temp files not removed: %s: %s", type(exc).__name__, exc)
-    since = now_ist().tz_localize(None).normalize() - HISTORY
+    since = _since()
     try:
         table = load_cache(since=since)
     except Exception as exc:  # unreadable cache: treat as none, the download rewrites it
