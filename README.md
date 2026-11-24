@@ -42,7 +42,7 @@ uv run mt report stock     # the VaR check below
 uv run pytest
 ```
 
-Later launches open on the cached data in about 0.4 s (Apple Silicon Mac, script start to first screen with Textual's
+Later launches open on the cached data in about 0.6 s (Apple Silicon Mac, script start to first screen with Textual's
 headless runner) and fetch the last week from Yahoo in the background; the header says "Updating…" until the
 new data is in, or "Refresh failed: <error type>" with the cached data still on screen. Errors go to
 `~/.config/market-terminal/mt.log`.
